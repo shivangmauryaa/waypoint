@@ -1,0 +1,67 @@
+/* Shared travel rail, expanded on hover; every traveler route uses this component. */
+.admin-fullscreen.traveler-shell { grid-template-columns: 78px minmax(0, 1fr); }
+.admin-fullscreen.traveler-shell > .traveler-sidebar.wp-side {
+  position: fixed; inset: 12px auto 12px 10px; width: 58px; height: calc(100dvh - 24px);
+  display: flex; flex-direction: column; padding: 12px 6px; overflow-x: hidden; overflow-y: auto;
+  border: 1px solid #e3e9f4; border-radius: 16px; background: linear-gradient(135deg,#fff,#f2f7ff);
+  color: #344779; box-shadow: 0 10px 30px #12234a20; transition: width .22s ease, box-shadow .22s ease;
+}
+.admin-fullscreen .wp-side .wp-brand { min-height: 44px; padding: 0 2px 12px; margin: 0 0 12px; border-bottom: 1px solid #e5ecf9; }
+.admin-fullscreen .wp-side .wp-brand > a { gap: 7px; color: #101c52; }
+.admin-fullscreen .wp-side .wp-logo { width: 38px; height: 36px; flex: 0 0 38px; background: transparent; color: #0863ff; box-shadow: none; }
+.admin-fullscreen .wp-side .wp-brand-text { font-size: 14px; font-weight: 800; letter-spacing: -.6px; }
+.admin-fullscreen .wp-side .wp-brand b { margin-top: 3px; color: #667499; font-size: 7px; letter-spacing: 0; font-weight: 500; }
+.admin-fullscreen .wp-side .admin-nav { flex: 1; }
+.admin-fullscreen .wp-side .admin-nav-group { margin: 13px 7px 8px; padding-top: 13px; border-top: 1px solid #e5ecf9; font-size: 8px; letter-spacing: .4px; color: #6d7b9e; }
+.admin-fullscreen .wp-side .admin-nav-group:first-child { display: none; }
+.admin-fullscreen .wp-side .admin-nav > a { height: 37px; padding: 0 12px; margin: 3px 0; gap: 13px; border: 0; border-radius: 7px; font-size: 11px; color: #263762; }
+.admin-fullscreen .wp-side .admin-nav > a > svg { color: #46578a; }
+.admin-fullscreen .wp-side .admin-nav > a:hover { background: #eaf1ff; color: #0863ff; }
+.admin-fullscreen .wp-side .admin-nav > a.selected { color: #075fff; background: #dfeaff; box-shadow: none; }
+.admin-fullscreen .wp-side .admin-nav > a.selected > svg { color: #075fff; }
+.admin-fullscreen .wp-side .admin-nav > a > .wp-nav-chevron { margin-left: auto; flex-basis: 13px; width: 13px; }
+.admin-fullscreen .wp-side .admin-nav-badge { background: #ff354d; color: #fff; font-size: 8px; min-width: 15px; padding: 1px 4px; }
+.admin-fullscreen .wp-side .wp-collapse { margin-left: auto; background: #eaf0ff; color: #304579; border: 0; border-radius: 6px; padding: 4px; display: grid; place-items: center; }
+.admin-fullscreen .wp-side .admin-sidebar-footer { flex-shrink: 0; padding: 12px 3px 0; margin-top: 18px; border-top: 1px solid #e5ecf9; }
+.admin-fullscreen .wp-side .admin-avatar { background: radial-gradient(circle at 35% 25%,#294dae,#050e3a); color: white; width: 32px; height: 32px; flex-basis: 32px; border: 1px solid #5c77b550; }
+.admin-fullscreen .wp-side .admin-user { gap: 9px; }
+.admin-fullscreen .wp-side .admin-user b { color: white; font-size: 11px; }
+.admin-fullscreen .wp-side .admin-user small { color: #d0dcfa; }
+.admin-fullscreen .wp-side .admin-user > button { color: #d0dcfa; }
+@media(min-width:761px) {
+  .admin-fullscreen.traveler-shell > .traveler-sidebar.wp-side:is(.is-expanded,:has(:focus-visible)) { width: 236px; padding-inline: 12px; box-shadow: 12px 12px 35px #12234a25; }
+  .traveler-shell .wp-side:not(.is-expanded):not(:has(:focus-visible)) .sidebar-brand-text,
+  .traveler-shell .wp-side:not(.is-expanded):not(:has(:focus-visible)) .wp-collapse,
+  .traveler-shell .wp-side:not(.is-expanded):not(:has(:focus-visible)) .admin-nav > a > span,
+  .traveler-shell .wp-side:not(.is-expanded):not(:has(:focus-visible)) .wp-nav-chevron,
+  .traveler-shell .wp-side:not(.is-expanded):not(:has(:focus-visible)) .admin-user > div,
+  .traveler-shell .wp-side:not(.is-expanded):not(:has(:focus-visible)) .admin-user > button { display: none; }
+  .traveler-shell .wp-side:not(.is-expanded):not(:has(:focus-visible)) .admin-nav-group { font-size: 0; height: 1px; margin: 12px 5px; padding: 0; }
+  .traveler-shell .wp-side:not(.is-expanded):not(:has(:focus-visible)) .admin-nav-badge { position: absolute; right: 2px; top: 2px; font-size: 7px; }
+  .traveler-shell .wp-side:is(.is-expanded,:has(:focus-visible)) .admin-sidebar-footer { padding: 24px 10px 16px; border: 0; border-radius: 12px; background: linear-gradient(0deg,#06132ce8,#14295166), url('/images/dashboard/santorini-hero.png') center/cover; }
+}
+@media(max-width:760px) {
+  .admin-fullscreen.traveler-shell { display: block; }
+  .admin-fullscreen.traveler-shell > .traveler-sidebar.wp-side { width: 248px; padding: 16px 12px; }
+  .admin-fullscreen .wp-side .wp-collapse { display: none; }
+  .admin-fullscreen .wp-side .admin-sidebar-footer { background: #142748; border-radius: 12px; padding: 16px 8px; }
+}
+@media(prefers-reduced-motion:reduce) { .admin-fullscreen.traveler-shell > .traveler-sidebar.wp-side { transition: none; } }
+
+/* Shared traveler pages use a compact search-only top bar. */
+.traveler-shell > .admin-main > .admin-topbar { height:52px;min-height:52px;padding:0 18px;justify-content:stretch; }
+.traveler-shell > .admin-main > .admin-topbar > div:first-child { flex:1;min-width:0; }
+.traveler-shell > .admin-main > .admin-topbar .trips-global-search { width:42px;height:36px;margin:0 auto; }
+.traveler-shell > .admin-main > .admin-topbar .trips-global-search.search-open { width:min(720px,78vw); }
+.traveler-shell > .admin-main > .admin-content { padding-top:10px; }
+.traveler-shell > .admin-main > .admin-content:has(.dash) { padding-top:10px; }
+.traveler-shell > .admin-main > .admin-content:has(.trips-page-columns) { padding-top:10px; }
+.traveler-shell > .admin-main > .admin-content:has(.wp-build) { padding-top:10px; }
+.admin-fullscreen .wp-side .admin-user { justify-content:center;gap:0; }
+.admin-fullscreen .wp-side .admin-user > button { margin-left:8px; }
+@media(max-width:760px) {
+  .traveler-shell > .admin-main > .admin-topbar { height:48px;min-height:48px;padding:0 10px; }
+  .traveler-shell > .admin-main > .admin-topbar .trips-global-search { margin-left:auto;margin-right:2px; }
+  .traveler-shell > .admin-main > .admin-topbar .trips-global-search.search-open { width:min(70vw,480px); }
+  .traveler-shell > .admin-main > .admin-content { padding-top:9px; }
+}

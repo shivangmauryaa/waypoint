@@ -1,0 +1,10 @@
+node_modules/
+dist/
+data/*.json
+data/*.tmp
+data/logos/
+*.log
+.env
+.env.network
+.env.tunnel
+tmp/

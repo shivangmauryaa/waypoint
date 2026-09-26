@@ -1,0 +1,57 @@
+/* Admin trip management. */
+.admin-trips-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.admin-trips-sub { font-size: 11px; color: #7f91b0; margin: 4px 0 0; }
+.admin-trips-count { font-size: 11px; font-weight: 800; color: #52657b; white-space: nowrap; }
+.admin-trip-list { display: grid; gap: 10px; margin-top: 14px; }
+.admin-trip { display: flex; align-items: center; gap: 14px; border: 1px solid #e6ecf4; border-left: 4px solid #cbd5e1; border-radius: 12px; padding: 13px 14px; background: #fff; box-shadow: 0 3px 10px rgba(29, 55, 97, .04); }
+.admin-trip.green { border-left-color: #1aa875; }
+.admin-trip.amber { border-left-color: #dba047; }
+.admin-trip.red { border-left-color: #e9575a; }
+.admin-trip.cancel { border-left-color: #b0b8c4; background: #fbfcfe; }
+.admin-trip.archived { border-left-color: #b0b8c4; opacity: .88; }
+.admin-trip-main { flex: 1; min-width: 0; }
+.admin-trip-title { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.admin-trip-title b { font-size: 13px; }
+.admin-trip-status { font-size: 9px; font-weight: 800; border-radius: 999px; padding: 3px 9px; background: #eef2f7; color: #64758b; }
+.admin-trip-status.green { background: #e8f8f0; color: #15986a; }
+.admin-trip-status.amber { background: #fff4e6; color: #c07a1e; }
+.admin-trip-status.red { background: #ffecec; color: #d94a4a; }
+.admin-trip-status.cancel, .admin-trip-status.archived { background: #eef1f5; color: #7a8798; }
+.admin-trip-flag { font-size: 9px; font-weight: 800; color: #c07a1e; background: #fff4e6; border-radius: 6px; padding: 3px 7px; }
+.admin-trip-meta { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 7px; font-size: 10px; color: #6f7f96; align-items: center; }
+.admin-trip-meta span { display: inline-flex; align-items: center; gap: 5px; }
+.admin-trip-meta small { color: #93a0b2; }
+.admin-trip-reason { margin-top: 7px; font-size: 10px; color: #b4562f; background: #fff6ef; border: 1px solid #ffe3cf; border-radius: 7px; padding: 6px 9px; }
+.admin-trip-actions { display: flex; flex-wrap: wrap; gap: 7px; flex: none; }
+.admin-trip-actions .button { height: 32px; padding: 0 11px; font-size: 9px; }
+.button.danger { border-color: #f3b8bd; background: #fff5f5; color: #d94a4a; }
+.button.danger:hover { background: #ffeded; }
+.admin-toast { position: fixed; right: 22px; bottom: 20px; background: #102746; color: #fff; padding: 10px 13px; border-radius: 8px; font-size: 10px; z-index: 100; }
+@media (max-width: 1000px) {
+  .admin-trip { flex-direction: column; align-items: stretch; }
+  .admin-trip-actions { justify-content: flex-end; }
+}
+
+/* Admin bookings + recovery management */
+.admin-booking-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 14px 0; }
+.admin-booking-stats article { display: flex; align-items: center; gap: 10px; border: 1px solid #e6ecf4; border-radius: 11px; padding: 11px 12px; background: #f8fbff; }
+.admin-booking-stats small { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: .5px; color: #8a98ac; }
+.admin-booking-stats strong { display: block; font-size: 17px; letter-spacing: -.4px; margin-top: 2px; }
+.abs-ico { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: #eef5ff; color: #126bff; flex: none; }
+.abs-ico.green { background: #e8f8f0; color: #15986a; }
+.abs-ico.red { background: #ffecec; color: #d94a4a; }
+.abs-ico.purple { background: #f1edff; color: #7962df; }
+.abs-ico.amber { background: #fff4e6; color: #c07a1e; }
+.admin-booking-actions { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.admin-booking-actions .text-button { display: inline-flex; align-items: center; gap: 3px; background: none; border: 0; color: #126bff; font-weight: 800; font-size: 10px; cursor: pointer; padding: 0; }
+.admin-booking-actions .text-button:disabled { opacity: .5; cursor: not-allowed; }
+.text-button.danger-text { color: #d94a4a; }
+.admin-queue-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+.admin-queue-actions .button { height: 32px; padding: 0 11px; font-size: 9px; }
+.admin-modal-backdrop { position: fixed; inset: 0; background: rgba(17, 35, 61, .5); display: grid; place-items: center; z-index: 60; padding: 20px; }
+.admin-modal { position: relative; width: min(520px, 100%); background: #fff; border-radius: 14px; box-shadow: 0 24px 60px rgba(15, 35, 66, .3); padding: 22px; }
+.admin-modal h2 { font-size: 18px; margin: 0 0 4px; }
+.admin-modal > p { font-size: 11px; color: #7083a0; margin: 0 0 12px; }
+.admin-modal-close { position: absolute; right: 12px; top: 12px; border: 0; background: #f2f6fb; border-radius: 8px; padding: 6px; color: #56708f; cursor: pointer; }
+.admin-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+@media (max-width: 1000px) { .admin-booking-stats { grid-template-columns: repeat(2, 1fr); } }

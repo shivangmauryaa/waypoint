@@ -1,0 +1,16 @@
+Waypoint Travel Disruption Recovery Engine
+
+Requires Node.js 24 or later.
+Open a terminal in this folder and run:
+  npm.cmd install
+  npm.cmd run build
+  npm.cmd start
+Then open http://127.0.0.1:3001
+
+Fresh local demo admin: admin@waypoint.local / AdminDemo123!
+Fresh local demo traveler: traveler@waypoint.local / TravelDemo123!
+
+The app creates its JSON storage automatically on first start.
+Private live accounts, passwords, sessions, logs and machine-specific network configuration are excluded.
+The running Cloudflare tunnel is separate from this portable package.
+See README.md for features and examples.

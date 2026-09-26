@@ -1,0 +1,11 @@
+Title: Delhi to Jaipur
+Type: flight
+Provider: Example Airways
+Reference: EX1234
+Start: 2026-10-12T08:00:00+05:30
+End: 2026-10-12T09:00:00+05:30
+From: DEL
+To: JAI
+Price: INR 4200
+Refund: 75%
+Refund deadline: 2026-10-11T08:00:00+05:30

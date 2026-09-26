@@ -1,0 +1,24 @@
+# Research and product decisions
+
+The expanded account implementation also follows the [OWASP session-management guidance](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html) for opaque session identifiers and cookie protections, and uses [Node's crypto APIs](https://nodejs.org/api/crypto.html) for salted scrypt password hashing and timing-safe comparison. PDF extraction uses the documented [PDF.js Node API](https://github.com/mozilla/pdf.js/blob/master/examples/node/getinfo.mjs); its current local API is checked against the installed type definitions and an actual extraction test.
+
+Research checked on 25 September 2026 against primary sources. The supplied brief is a useful wishlist, but its broad claim that no existing product offers recovery cannot be established from this research. This prototype demonstrates a whole-itinerary approach without claiming market exclusivity.
+
+| Source                                                                                                            | Verified finding                                                                                                    | Design consequence                                                                                                                                                                             |
+| ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [TripIt: Alternate Flights](https://help.tripit.com/en/support/solutions/articles/103000063402-alternate-flights) | TripIt Pro helps find alternate flights for delayed/cancelled flights.                                              | The useful demonstration goes beyond a flight list: propagate changes to transfer, check-in and activity nodes.                                                                                |
+| [TripIt: Flight alerts](https://help.tripit.com/en/support/solutions/articles/103000063296-flight-alerts)         | TripIt provides real-time flight alerts.                                                                            | Do not describe local simulations as live monitoring. Surface demo mode clearly.                                                                                                               |
+| [Amadeus developer FAQ](https://admin.developers.amadeus.com/self-service/apis-docs/guides/developer-guides/faq/) | Flight Offers Price can include detailed fare rules; flight search excludes certain unavailable flights by default. | Keep inventory eligibility and refund rules separate, and reserve an adapter boundary for live supplier validation.                                                                            |
+| [US DOT: Refunds](https://www.transportation.gov/individuals/aviation-consumer-protection/refunds)                | US air-refund rights depend on the disruption and the traveler's acceptance of alternatives.                        | Refunds must not be assumed universally or double-counted. Demo policies are explicit illustrative inputs, not legal advice. US rules are not applied to the sample Indian domestic itinerary. |
+
+## Implemented interpretation
+
+The graph represents bookings as nodes, and arrival/connection requirements as directed edges. A topological traversal finds downstream effects. Bounded search evaluates possible replacement combinations. Feasibility rules run before preference ranking; budget and availability are hard filters, while cost/time/convenience rank the remaining paths.
+
+Explainability comes from concrete before/after times, itemized costs and refunds, explicit dependency buffers and clear change reasons. No LLM is needed to invent inventory or make arithmetic decisions. Three alternatives are the upper limit, not a promise: the system returns fewer when only fewer feasible unique paths exist.
+
+## Demo policies
+
+Prices are sample INR party totals, not observed live fares. Supplier cancellation gives a full refund in the demo. Other replacements credit the booking's refund fraction only before its stored deadline; after the deadline they credit zero. Keeping a delayed booking generates no replacement charge or refund. These policies intentionally avoid hard-coding jurisdiction-specific legal entitlements.
+
+The demo offers fixed slots, and has no lodging room-night availability or supplier confirmation API. Local application changes the planned itinerary only. This distinction is necessary because search results and estimated policies are not a ticket, reservation or issued refund.

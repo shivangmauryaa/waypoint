@@ -1,0 +1,215 @@
+/* Shared traveler navigation: one polished, expanded rail across the console. */
+.admin-fullscreen.traveler-shell {
+  grid-template-columns: 232px minmax(0, 1fr);
+  background: #f5f7fb;
+}
+.admin-fullscreen.traveler-shell > .admin-main { grid-column: 2; }
+.admin-fullscreen.traveler-shell > .traveler-sidebar {
+  position: relative;
+  inset: auto;
+  z-index: 45;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  padding: 22px 14px 0;
+  overflow: auto;
+  background: #fff;
+  border-right: 1px solid #e6ebf3;
+  color: #3c4d68;
+  box-shadow: 2px 0 8px #162b4d05;
+  scrollbar-width: thin;
+  scrollbar-color: #d4deec transparent;
+}
+.traveler-shell .traveler-sidebar .admin-brand {
+  min-height: 46px;
+  padding: 0 8px;
+  margin: 0 0 25px;
+  font-size: 20px;
+}
+.traveler-shell .traveler-sidebar .admin-brand > a {
+  color: #10213f;
+  gap: 10px;
+  white-space: nowrap;
+}
+.traveler-shell .traveler-sidebar .admin-logo {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #1677ff, #0755d9);
+  color: white;
+  box-shadow: 0 4px 10px #0862ff24;
+}
+.traveler-shell .traveler-sidebar .sidebar-brand-text { display: block; }
+.traveler-shell .traveler-sidebar .admin-brand b {
+  margin-top: 3px;
+  color: #8a99af;
+  font-size: 7px;
+  letter-spacing: 1.35px;
+}
+.traveler-shell .traveler-sidebar .admin-nav {
+  display: block;
+  width: 100%;
+  margin: 0;
+  flex: 1;
+}
+.traveler-shell .traveler-sidebar .admin-nav-group {
+  height: auto;
+  margin: 20px 11px 8px;
+  color: #9aa7ba;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 1.2px;
+}
+.traveler-shell .traveler-sidebar .admin-nav > a {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 41px;
+  margin: 3px 0;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: #5d6c84;
+  font-size: 11px;
+  font-weight: 550;
+  white-space: nowrap;
+  transition: color .16s ease, background .16s ease, border-color .16s ease, transform .16s ease;
+}
+.traveler-shell .traveler-sidebar .admin-nav > a > svg {
+  flex: 0 0 18px;
+  color: #8998ad;
+  transition: color .16s ease;
+}
+.traveler-shell .traveler-sidebar .admin-nav > a:hover {
+  background: #f5f8fd;
+  color: #145ed8;
+  border-color: #edf2f9;
+}
+.traveler-shell .traveler-sidebar .admin-nav > a:hover > svg { color: #3478e8; }
+.traveler-shell .traveler-sidebar .admin-nav > a.selected {
+  background: linear-gradient(100deg, #edf4ff, #f2f6ff);
+  border-color: #e3edff;
+  color: #075de5;
+  font-weight: 650;
+  box-shadow: inset 3px 0 #1768f5;
+}
+.traveler-shell .traveler-sidebar .admin-nav > a.selected > svg { color: #1768f5; }
+.traveler-shell .traveler-sidebar .admin-nav-badge {
+  min-width: 19px;
+  margin-left: auto;
+  padding: 2px 6px;
+  border-radius: 20px;
+  background: #fff0e8;
+  color: #c56b35;
+  font-size: 9px;
+  text-align: center;
+}
+.traveler-shell .traveler-sidebar .admin-sidebar-footer {
+  padding: 15px 5px 17px;
+  margin-top: 20px;
+  border-color: #edf0f5;
+}
+.traveler-shell .traveler-sidebar .admin-user { gap: 10px; }
+.traveler-shell .traveler-sidebar .admin-avatar {
+  width: 35px;
+  height: 35px;
+  flex: 0 0 35px;
+  border: 1px solid #dbe7fa;
+  border-radius: 50%;
+  background: #edf4ff;
+  color: #1763d7;
+  font-size: 10px;
+}
+.traveler-shell .traveler-sidebar .admin-user > div { min-width: 0; white-space: nowrap; }
+.traveler-shell .traveler-sidebar .admin-user b {
+  display: block;
+  max-width: 120px;
+  overflow: hidden;
+  color: #273953;
+  font-size: 10px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+}
+.traveler-shell .traveler-sidebar .admin-user small {
+  display: block;
+  margin-top: 3px;
+  color: #8997aa;
+  font-size: 8px;
+}
+.traveler-shell .traveler-sidebar .admin-user > button {
+  margin-left: auto;
+  padding: 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #7b8ba3;
+}
+.traveler-shell .traveler-sidebar .admin-user > button:hover { background: #f2f5fa; color: #34557f; }
+.traveler-shell .traveler-sidebar a:focus-visible,
+.traveler-shell .traveler-sidebar button:focus-visible {
+  outline: 2px solid #4e91f8;
+  outline-offset: 2px;
+}
+
+.trip-section-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 12px;
+}
+.trip-section-tabs .admin-nav-group { display: none; }
+.trip-section-tabs > a {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: #64758b;
+  font-size: 11px;
+}
+.trip-section-tabs > a.selected { color: #0862ff; background: #eaf1ff; }
+
+@media (max-width: 1000px) and (min-width: 761px) {
+  .admin-fullscreen.traveler-shell { grid-template-columns: 214px minmax(0, 1fr); }
+  .traveler-shell .traveler-sidebar .admin-nav > a { gap: 10px; padding-inline: 10px; }
+  .traveler-shell .traveler-sidebar { padding-inline: 11px; }
+}
+@media (max-width: 760px) {
+  .admin-fullscreen.traveler-shell { display: block; }
+  .admin-fullscreen.traveler-shell > .traveler-sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: 260px;
+    height: 100dvh;
+    z-index: 60;
+    padding: 22px 14px 0;
+    transform: translateX(-101%);
+    transition: transform .2s ease, box-shadow .2s ease;
+    box-shadow: none;
+  }
+  .admin-fullscreen.traveler-shell.nav-open > .traveler-sidebar {
+    transform: translateX(0);
+    box-shadow: 16px 0 40px #12264b25;
+  }
+  .traveler-shell .traveler-sidebar .admin-brand { display: flex; }
+  .traveler-shell.nav-open .admin-nav-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: #15243d55;
+    backdrop-filter: blur(2px);
+    border: 0;
+  }
+  .trip-section-tabs { flex-wrap: nowrap; overflow-x: auto; }
+  .trip-section-tabs > a { white-space: nowrap; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .traveler-shell .traveler-sidebar,
+  .traveler-shell .traveler-sidebar * { transition: none !important; }
+}
