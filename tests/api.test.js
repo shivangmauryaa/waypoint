@@ -667,6 +667,27 @@ test("multi-user platform integration", async (t) => {
       }
       assert.equal(checked.data.email.status, "not_configured");
     });
+    await t.test("admin event cancellation marks the event cancelled and emails the traveler", async () => {
+      const trip = (await call(`trips/${otherId}/state`, undefined, "GET", "other")).data.trip;
+      const event = trip.bookings.find((item) => item.type === "event");
+      assert.ok(event);
+      const cancelled = await call(
+        `admin/trips/${otherId}/bookings/${event.id}/cancel`,
+        { reason: "Venue closed" },
+        "POST",
+        "admin",
+      );
+      assert.equal(cancelled.status, 200);
+      assert.equal(cancelled.data.email.status, "not_configured");
+      assert.equal(cancelled.data.trip.bookings.find((item) => item.id === event.id).status, "cancelled");
+      assert.ok(cancelled.data.disruptions.some((item) => item.bookingId === event.id && item.type === "cancellation"));
+      const notice = (await call("notifications", undefined, "GET", "other")).data.find((item) => item.title === "Event cancelled");
+      assert.ok(notice);
+      assert.match(notice.message, /Venue closed/);
+      const outbox = (await call("admin/overview", undefined, "GET", "admin")).data.outbox.find((item) => item.subject === "Event cancelled");
+      assert.ok(outbox);
+      assert.match(outbox.body, /marked cancelled in your itinerary/);
+    });
     await t.test("admin cancellation updates the traveler and records email delivery", async () => {
       const cancelled = await call(
         `admin/trips/${otherId}/cancel`,

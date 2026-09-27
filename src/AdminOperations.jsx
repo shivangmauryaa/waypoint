@@ -288,9 +288,9 @@ export function AdminOperations({
       setBusy(key);
       setActionError("");
       try {
-        await fn();
+        const result = await fn();
         await reload?.();
-        if (ok) notify?.(ok);
+        if (ok) notify?.(typeof ok === "function" ? ok(result) : ok);
       } catch (e) {
         setActionError(e.message);
       } finally {
@@ -301,8 +301,12 @@ export function AdminOperations({
       if (!window.confirm(`Cancel “${b.title}”? The traveler is notified and recovery options open.`)) return;
       if (fromModal) setPolicy(null);
       run(b.tripId + b.id + ":cancel", () =>
-        api(`trips/${b.tripId}/disruptions`, { bookingId: b.id, type: "cancellation", delayMinutes: 0, note: "Cancelled by administrator" }, "POST"),
-        `Cancellation recorded for ${b.title}.`,
+        api(`admin/trips/${b.tripId}/bookings/${b.id}/cancel`, { reason: "Cancelled by administrator" }, "POST"),
+        (result) => result.email?.status === "sent"
+          ? `Cancelled ${b.title}; traveler email sent.`
+          : result.email?.status === "failed"
+            ? `Cancelled ${b.title}; email delivery failed. Check the admin outbox.`
+            : `Cancelled ${b.title}; email is ${result.email?.status || "not configured"}.`,
       );
     };
     const exportCsv = () => {

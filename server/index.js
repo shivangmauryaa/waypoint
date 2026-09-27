@@ -563,8 +563,11 @@ app.get("/api/trips/:tripId/state", (req, res) =>
 );
 app.get("/api/trips/:tripId/weather", async (req, res) => {
   const trip = owned(state, req);
-  res.set("Cache-Control", "private, max-age=120");
-  res.json(await getTripWeather(trip.trip.destination));
+  const weather = await getTripWeather(trip.trip.destination);
+  const maxAge = weather.current ? 600 : Math.max(60, weather.retryAfterSeconds || 900);
+  res.set("Cache-Control", `private, max-age=${maxAge}, stale-while-revalidate=60`);
+  if (weather.retryAfterSeconds) res.set("Retry-After", String(weather.retryAfterSeconds));
+  res.json(weather);
 });
 app.post("/api/trips/:tripId/parse", async (req, res) => {
   owned(state, req);
@@ -1940,7 +1943,7 @@ app.post("/api/admin/trips/:tripId/bookings/:bookingId/cancel", async (req, res)
       note: reason, occurredAt: t.clock || now(),
     });
     const subject = `${booking.type === "event" ? "Event" : booking.type === "activity" ? "Activity" : "Booking"} cancelled`;
-    const body = `${booking.title} (${booking.type}) was cancelled by the Waypoint travel team${input.reason ? `: ${input.reason}` : "."} It is now marked cancelled in your itinerary. Review recovery options for alternatives.`;
+    const body = `${booking.title} (${booking.type}) was cancelled by the Waypoint travel team${input.reason ? ` (${input.reason})` : ""}. It is now marked cancelled in your itinerary. Review recovery options for alternatives.`;
     notify(s, t.ownerId, t.trip.id, subject, body, { emailPreview: false });
     t.version++;
     audit(s, req.user.id, "admin.booking-cancelled", t.trip.id, `${booking.title}: ${reason}`);

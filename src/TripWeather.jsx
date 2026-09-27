@@ -40,13 +40,15 @@ export function TripWeather({ tripId, data, onNavigate }) {
     try {
       const next = await api(`trips/${tripId}/weather`);
       setWeather(next);
-      if (!next.current) setError(next.warnings?.[0] || "Live forecast is unavailable.");
+      if (next.servedStale) setError(`${next.warnings?.[0] || "Showing the last available forecast."} ${next.warnings?.[1] || ""}`.trim());
+      else if (!next.current) setError(next.warnings?.[0] || "Live forecast is unavailable. Please try again later.");
+      else setError("");
     } catch (err) { setError(err.message); }
     finally { setLoading(false); }
   };
   useEffect(() => {
     loadWeather();
-    const timer = setInterval(loadWeather, 300000);
+    const timer = setInterval(loadWeather, 600000);
     return () => clearInterval(timer);
   }, [tripId]);
 

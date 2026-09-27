@@ -49,3 +49,22 @@ test("traveler email escapes user-provided text and uses a safe local base URL f
   assert.match(rendered.html, /http:\/\/localhost:3001\/trip\/id%2Fwith%20spaces\/overview/);
   assert.deepEqual(rendered.attachments.map(({ cid }) => cid), ["waypoint-logo"]);
 });
+
+test("a cancelled booking is labelled separately from cancellation of the whole trip", () => {
+  const rendered = renderTravelerAlertEmail({
+    travelerName: "Alex",
+    subject: "Event cancelled",
+    body: "Dinner was cancelled by the Waypoint travel team. Review recovery options.",
+    trip: {
+      id: "trip-event",
+      name: "Jaipur trip",
+      destination: "Jaipur",
+      cancelled: false,
+      bookings: [{ type: "event", title: "Rooftop dinner", start: "2026-10-12T19:00:00+05:30", status: "cancelled" }],
+    },
+  });
+  assert.match(rendered.html, /BOOKING CANCELLED/);
+  assert.match(rendered.html, /Rooftop dinner/);
+  assert.match(rendered.html, /<b style="color:#e3232d">Cancelled<\/b>/);
+  assert.doesNotMatch(rendered.html, /TRIP CANCELLED/);
+});
