@@ -1486,7 +1486,7 @@ export function Notifications() {
                   <span className={"inbox-type " + selected.type}>{INBOX_TYPES[selected.type].label}</span>
                 </div>
                 <h2>{selected.title}</h2>
-                <p className="inbox-detail-lead">{selected.message}</p>
+                <p className="inbox-detail-lead">{selected.message.split("\n\n")[0]}</p>
                 <div className={"inbox-alert-box " + selected.type}>{INBOX_ALERT[selected.type]}</div>
                 {selected.tripId && (
                   <section className="inbox-section">

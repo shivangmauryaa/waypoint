@@ -164,9 +164,27 @@ test("multi-user platform integration", async (t) => {
           "POST",
           "other",
         );
-        assert.equal(r.data.offers.length, 5);
+        assert.equal(r.data.offers.length, 12);
       },
     );
+    await t.test("generated recovery inventory returns and applies a feasible plan", async () => {
+      await call("auth/signup", { name: "Inventory Tester", email: "inventory@example.com", password: "InventoryTest123!" }, "POST", "inventory");
+      const created = await call("trips", { name: "Inventory recovery", destination: "Goa", subtitle: "Testing generated recovery options", start: "2026-11-01", end: "2026-11-02", travelers: 1 }, "POST", "inventory");
+      assert.equal(created.status, 200);
+      const id = created.data.id;
+      const booking = await call(`trips/${id}/bookings`, { type: "flight", title: "Delhi to Goa", provider: "Demo airline", reference: "INV123", from: "DEL", to: "GOI", start: "2026-11-01T09:00:00+05:30", end: "2026-11-01T11:30:00+05:30", price: 5000, refund: 0.5, refundDeadline: "2026-10-31T09:00:00+05:30", dependencies: [] }, "POST", "inventory");
+      const bookingId = booking.data.trip.bookings[0].id;
+      let options = await call(`trips/${id}/generate-inventory`, {}, "POST", "inventory");
+      assert.equal(options.data.offers.length, 12);
+      options = await call(`trips/${id}/generate-inventory`, {}, "POST", "inventory");
+      assert.equal(options.data.offers.length, 12, "generation can be retried safely");
+      const disrupted = await call(`trips/${id}/disruptions`, { bookingId, type: "cancellation", delayMinutes: 0, note: "Test cancellation" }, "POST", "inventory");
+      assert.ok(disrupted.data.plans.length, "demo inventory should offer a feasible replacement");
+      const applied = await call(`trips/${id}/apply`, { planId: disrupted.data.plans[0].id, version: disrupted.data.version }, "POST", "inventory");
+      assert.equal(applied.status, 200);
+      assert.equal(applied.data.disruptions.length, 0);
+      assert.equal(applied.data.trip.bookings[0].status, "recovered");
+    });
     await t.test(
       "confirmation ingestion previews data without saving",
       async () => {
@@ -594,6 +612,60 @@ test("multi-user platform integration", async (t) => {
       assert.ok(p.trips.length >= 1);
       assert.ok(p.trips.every((x) => typeof x.value === "number"));
       assert.ok(p.trips.some((x) => x.bookings > 0));
+    });
+    await t.test("admin trip check consolidates all warnings into one notification and email", async () => {
+      const trip = (await call(`trips/${otherId}/state`, undefined, "GET", "other")).data.trip;
+      const flight = trip.bookings.find((item) => item.type === "flight");
+      for (const booking of [
+        {
+          type: "event",
+          title: "Tight airport connection",
+          provider: "Demo venue",
+          reference: "CHECK-EVENT",
+          from: "GOI",
+          to: "GOI",
+          start: "2026-11-01T12:00:00+05:30",
+          end: "2026-11-01T13:00:00+05:30",
+          price: 1000,
+          refund: 0.5,
+          refundDeadline: "2026-10-31T09:00:00+05:30",
+          dependencies: [{ id: flight.id, buffer: 90 }],
+        },
+        {
+          type: "transfer",
+          title: "Wrong terminal transfer",
+          provider: "Demo transfer",
+          reference: "CHECK-TRANSFER",
+          from: "JAI",
+          to: "Hotel",
+          start: "2026-11-01T12:15:00+05:30",
+          end: "2026-11-01T13:00:00+05:30",
+          price: 800,
+          refund: 0,
+          refundDeadline: "2026-10-31T09:00:00+05:30",
+          dependencies: [{ id: flight.id, buffer: 45 }],
+        },
+      ]) {
+        const created = await call(`trips/${otherId}/bookings`, booking, "POST", "other");
+        assert.equal(created.status, 200);
+      }
+      const expected = (await call(`trips/${otherId}/state`, undefined, "GET", "other")).data.warnings;
+      assert.ok(expected.length >= 2);
+      const checked = await call(`admin/trips/${otherId}/check`, {}, "POST", "admin");
+      assert.equal(checked.status, 200);
+      assert.equal(checked.data.warnings, expected.length);
+      const notices = (await call("notifications", undefined, "GET", "other")).data
+        .filter((item) => item.title.startsWith("Trip check complete"));
+      assert.equal(notices.length, 1);
+      const checkEmail = (await call("admin/overview", undefined, "GET", "admin"))
+        .data.outbox.find((item) => item.subject === notices[0].title);
+      assert.ok(checkEmail);
+      for (const warning of expected) {
+        assert.ok(notices[0].message.includes(warning.title));
+        assert.ok(notices[0].message.includes(warning.message));
+        assert.ok(checkEmail.body.includes(warning.message));
+      }
+      assert.equal(checked.data.email.status, "not_configured");
     });
     await t.test("admin cancellation updates the traveler and records email delivery", async () => {
       const cancelled = await call(

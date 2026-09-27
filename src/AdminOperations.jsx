@@ -781,7 +781,7 @@ export function AdminOperations({
               ],
               ["Active sessions", data.system?.activeSessions || 0],
               ["Supplier connectivity", "Local simulation"],
-              ["Email delivery", "Local outbox only"],
+              ["Email delivery", data.system?.emailDelivery || "Local outbox only"],
             ].map(([k, v]) => (
               <div key={k}>
                 <dt>{k}</dt>

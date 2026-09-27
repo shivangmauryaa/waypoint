@@ -1,5 +1,5 @@
 import { TravelerSidebar } from "./TravelerSidebar";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { api, go } from "./api";
 import { navigate } from "./navigation";
 import { BookingEditor, Inventory, TripSettings, Assistant } from "./Workspace";
@@ -160,6 +160,7 @@ export default function Dashboard({
     [viewSlug, setViewSlug] = useState(section),
     [graph, setGraph] = useState(false),
     [recoveryPlansOpen, setRecoveryPlansOpen] = useState(false);
+  const generatedRecoveryFor = useRef("");
   useEffect(() => {
     // The itinerary section was removed; send old links to the trip overview.
     if (section === "itinerary") {
@@ -207,6 +208,15 @@ export default function Dashboard({
       setBusy(false);
     }
   }
+  useEffect(() => {
+    if (viewSlug !== "recovery" || !data || busy || !data.disruptions?.length || data.plans?.length) return;
+    const key = `${tripId}:${data.disruptions.map((item) => item.id).join(",")}`;
+    if (generatedRecoveryFor.current === key) return;
+    generatedRecoveryFor.current = key;
+    request("generate-inventory", {}).then((ok) => {
+      if (ok) setRecoveryPlansOpen(true);
+    });
+  }, [viewSlug, tripId, data, busy]);
   useEffect(() => {
     request("state");
   }, [tripId]);

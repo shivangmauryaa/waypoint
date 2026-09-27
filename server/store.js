@@ -144,7 +144,41 @@ function repairIndependentDayLinks(snapshot) {
   }
   return changed;
 }
-if (repairIndependentDayLinks(state)) {
+function compactTripWarningNotifications(snapshot) {
+  const warningTitles = new Set([
+    "Missing location connection",
+    "Connection is not feasible",
+    "A little more breathing room",
+  ]);
+  const groups = new Map();
+  for (const item of snapshot.notifications || []) {
+    if (!warningTitles.has(item.title) || !item.tripId || !item.userId) continue;
+    const key = `${item.userId}|${item.tripId}|${item.at}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  }
+  const summaries = new Map();
+  const removed = new Set();
+  for (const items of groups.values()) {
+    if (items.length < 2) continue;
+    const keeper = items[0];
+    summaries.set(keeper.id, {
+      ...keeper,
+      title: `Trip check summary: ${items.length} items`,
+      message: `Waypoint found ${items.length} trip items to review:\n\n${items.map((item, index) => `${index + 1}. ${item.title}\n${item.message}`).join("\n\n")}`,
+      read: items.every((item) => item.read),
+    });
+    for (const item of items.slice(1)) removed.add(item.id);
+  }
+  if (!removed.size) return false;
+  snapshot.notifications = snapshot.notifications
+    .filter((item) => !removed.has(item.id))
+    .map((item) => summaries.get(item.id) || item);
+  return true;
+}
+const repairedDayLinks = repairIndependentDayLinks(state);
+const compactedNotifications = compactTripWarningNotifications(state);
+if (repairedDayLinks || compactedNotifications) {
   await writeFile(file + ".tmp", JSON.stringify(state, null, 2));
   await rename(file + ".tmp", file);
 }

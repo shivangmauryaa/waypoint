@@ -1,7 +1,8 @@
 import express from "express";
-import nodemailer from "nodemailer";
 import { resolve } from "node:path";
 import { z } from "zod";
+import { gmailSmtpConfigured, sendGmailSmtpMessage } from "./gmail.js";
+import { renderTravelerAlertEmail } from "./email-template.js";
 import {
   state,
   mutate,
@@ -149,34 +150,11 @@ function mailToken(s, user, type) {
     at: now(),
   });
 }
-let mailTransport;
-function getMailTransport() {
-  if (!process.env.SMTP_HOST || !process.env.SMTP_FROM) return null;
-  if (!mailTransport) {
-    mailTransport = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT || 587),
-      secure: String(process.env.SMTP_SECURE || "").toLowerCase() === "true",
-      auth: process.env.SMTP_USER
-        ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD }
-        : undefined,
-    });
-  }
-  return mailTransport;
-}
-async function deliverAdminEmail(to, subject, body) {
+async function deliverAdminEmail(to, subject, body, { html, attachments } = {}) {
   const message = { id: id(), to, subject, body, at: now(), status: "not_configured" };
-  const transport = getMailTransport();
-  if (transport && to) {
+  if (gmailSmtpConfigured() && to) {
     try {
-      const sent = await transport.sendMail({
-        from: process.env.SMTP_FROM,
-        replyTo: process.env.SMTP_REPLY_TO || undefined,
-        to,
-        subject,
-        text: body,
-        headers: { "Auto-Submitted": "auto-generated" },
-      });
+      const sent = await sendGmailSmtpMessage({ to, subject, body, html, attachments });
       message.status = "sent";
       message.messageId = sent.messageId;
     } catch (error) {
@@ -186,18 +164,55 @@ async function deliverAdminEmail(to, subject, body) {
   } else if (!to) {
     message.status = "unavailable";
     message.detail = "Traveler email address is missing.";
+  } else {
+    message.detail = "Gmail SMTP credentials are not configured; the notification remains in Waypoint.";
   }
   await mutate((s) => s.outbox.unshift(message));
   return { status: message.status, to: message.to };
 }
+function adminTripEmailDetails(s, trip, subject, body) {
+  const traveler = s.users.find((user) => user.id === trip.ownerId);
+  const tripBookings = trip.trip.bookings || [];
+  const relevantWarnings = trip.cancelled ? [] : warnings(trip).slice(0, 3);
+  return {
+    to: traveler?.email || "",
+    subject,
+    body,
+    tripName: trip.trip.name,
+    travelerName: traveler?.name || "traveler",
+    trip: {
+      id: trip.trip.id,
+      name: trip.trip.name,
+      destination: trip.trip.destination,
+      start: trip.trip.start,
+      end: trip.trip.end,
+      cancelled: Boolean(trip.cancelled),
+      bookings: tripBookings.map(({ id: bookingId, type, title, provider, start, end, status }) => ({
+        id: bookingId,
+        type,
+        title,
+        provider,
+        start,
+        end,
+        status,
+      })),
+    },
+    impacts: relevantWarnings.map((warning) => warning.message),
+    intro: trip.cancelled
+      ? "An administrator changed the status of your trip. Review the update and next steps below."
+      : relevantWarnings.length
+        ? "Waypoint found a change that may affect your upcoming plans. Review the trip details and recovery options below."
+        : "An administrator updated your trip. Review the latest details and available options below.",
+  };
+}
 function adminTripNotice(s, trip, subject, body) {
   notify(s, trip.ownerId, trip.trip.id, subject, body, { emailPreview: false });
-  const traveler = s.users.find((user) => user.id === trip.ownerId);
-  return { to: traveler?.email || "", subject, body, tripName: trip.trip.name };
+  return adminTripEmailDetails(s, trip, subject, body);
 }
 async function sendTripActionEmail(result) {
   const body = `${result.body}\n\nTrip: ${result.tripName}\n\nThis update was sent by the Waypoint travel team.`;
-  return deliverAdminEmail(result.to, result.subject, body);
+  const rendered = renderTravelerAlertEmail({ ...result, body });
+  return deliverAdminEmail(result.to, result.subject, body, rendered);
 }
 app.get("/api/auth/me", (req, res) =>
   res.json({ user: req.user ? publicUser(req.user) : null }),
@@ -677,19 +692,22 @@ app.delete("/api/trips/:tripId/offers/:offerId", async (req, res) => {
 });
 app.post("/api/trips/:tripId/generate-inventory", async (req, res) => {
   await change(req, res, "inventory.demo-generated", (t) => {
-    t.offers = t.trip.bookings.flatMap((b) =>
-      [120, 240, 360, 720, 1440].map((shift, i) => ({
+    if (t.offers.some((offer) => offer.source === "recovery-demo")) return;
+    const shifts = [30, 45, 60, 75, 90, 120, 150, 180, 240, 360, 720, 1440];
+    t.offers.push(...t.trip.bookings.flatMap((b) =>
+      shifts.map((shift, i) => ({
         ...b,
         id: id(),
         bookingId: b.id,
-        provider: `Demo ${b.provider} · option ${i + 1}`,
+        provider: `Demo ${b.provider} · ${shift} min later`,
         start: new Date(Date.parse(b.start) + shift * 60000).toISOString(),
         end: new Date(Date.parse(b.end) + shift * 60000).toISOString(),
-        price: Math.round(b.price * (1.2 - i * 0.08)),
+        price: Math.round(b.price * (i < 3 ? 0.82 + i * 0.05 : 1.05 + (i - 3) * 0.04)),
         seats: t.trip.travelers + 2,
-        accessible: i !== 4,
+        accessible: i !== shifts.length - 1,
+        source: "recovery-demo",
       })),
-    );
+    ));
   });
 });
 // Per-booking alternative search: targeted replacements for one booking only.
@@ -1757,6 +1775,9 @@ app.get("/api/admin/overview", (req, res) =>
       uptime: Math.floor(process.uptime()),
       node: process.version,
       storage: "Local JSON",
+      emailDelivery: gmailSmtpConfigured()
+        ? "Gmail SMTP configured"
+        : "Local outbox only",
       monitorInterval: 30,
       activeSessions: state.sessions.filter((s) => s.expires > Date.now())
         .length,
@@ -1813,8 +1834,10 @@ app.get("/api/admin/overview", (req, res) =>
       },
       {
         name: "Email / SMS",
-        status: "Local outbox",
-        detail: "Emails are recorded here, never sent. SMS is not connected.",
+        status: gmailSmtpConfigured() ? "Gmail SMTP configured" : "Gmail SMTP needs credentials",
+        detail: gmailSmtpConfigured()
+          ? "Administrator trip actions are sent through Gmail SMTP; delivery results are recorded in the outbox. SMS is not connected."
+          : "Add Gmail SMTP credentials to send administrator trip updates. Notifications remain in Waypoint. SMS is not connected.",
       },
       {
         name: "AI assistant",
@@ -1902,23 +1925,46 @@ const adminTrip = (s, req) => {
   if (!t) fail(404, "Trip not found");
   return t;
 };
+app.post("/api/admin/trips/:tripId/bookings/:bookingId/cancel", async (req, res) => {
+  const input = z.object({ reason: z.string().trim().max(300).optional() }).parse(req.body || {});
+  const result = await mutate((s) => {
+    const t = adminTrip(s, req);
+    const booking = t.trip.bookings.find((item) => item.id === req.params.bookingId);
+    if (!booking) fail(404, "Booking not found");
+    if (booking.status === "cancelled") fail(409, "This booking is already cancelled");
+    const reason = input.reason || "Cancelled by the Waypoint travel team.";
+    booking.status = "cancelled";
+    t.disruptions = t.disruptions.filter((item) => item.bookingId !== booking.id);
+    t.disruptions.push({
+      id: id(), bookingId: booking.id, type: "cancellation", delayMinutes: 0,
+      note: reason, occurredAt: t.clock || now(),
+    });
+    const subject = `${booking.type === "event" ? "Event" : booking.type === "activity" ? "Activity" : "Booking"} cancelled`;
+    const body = `${booking.title} (${booking.type}) was cancelled by the Waypoint travel team${input.reason ? `: ${input.reason}` : "."} It is now marked cancelled in your itinerary. Review recovery options for alternatives.`;
+    notify(s, t.ownerId, t.trip.id, subject, body, { emailPreview: false });
+    t.version++;
+    audit(s, req.user.id, "admin.booking-cancelled", t.trip.id, `${booking.title}: ${reason}`);
+    return { trip: snapshot(t), email: adminTripEmailDetails(s, t, subject, body) };
+  });
+  const email = await sendTripActionEmail(result.email);
+  res.json({ ...result.trip, email });
+});
+const tripCheckSummary = (found) =>
+  found.length
+    ? `Waypoint reviewed your trip and found ${found.length} item${found.length === 1 ? "" : "s"} to review:\n\n${found.map((warning, index) => `${index + 1}. ${warning.title}\n${warning.message}`).join("\n\n")}`
+    : "Waypoint reviewed your trip. No new issues were found.";
 app.post("/api/admin/trips/:tripId/check", async (req, res) => {
   const result = await mutate((s) => {
     const t = adminTrip(s, req);
     const found = warnings(t);
     t.monitoredVersion = t.version;
-    for (const w of found)
-      notify(s, t.ownerId, t.trip.id, w.title, w.message, { emailPreview: false });
+    const subject = found.length
+      ? `Trip check complete: ${found.length} item${found.length === 1 ? "" : "s"} to review`
+      : "Trip check complete";
+    const body = tripCheckSummary(found);
+    notify(s, t.ownerId, t.trip.id, subject, body, { emailPreview: false });
     audit(s, req.user.id, "admin.trip-checked", t.trip.id, `${found.length} warnings`);
-    const traveler = s.users.find((user) => user.id === t.ownerId);
-    const email = {
-      to: traveler?.email || "",
-      subject: found.length ? "Your trip check is complete" : "Your trip has been checked",
-      body: found.length
-        ? `The Waypoint team reviewed your trip and found ${found.length} item(s) to review: ${found.map((warning) => warning.title).join(", ")}. Open your trip to see details.`
-        : "The Waypoint team reviewed your trip. No new issues were found.",
-      tripName: t.trip.name,
-    };
+    const email = adminTripEmailDetails(s, t, subject, body);
     return { id: t.trip.id, warnings: found.length, riskLevel: summary(t).riskLevel, email };
   });
   const email = await sendTripActionEmail(result.email);
@@ -2053,8 +2099,15 @@ const monitor = setInterval(() => {
   mutate((s) => {
     for (const t of s.trips) {
       if (t.archived || t.cancelled || t.paused || t.monitoredVersion === t.version) continue;
-      for (const w of warnings(t))
-        notify(s, t.ownerId, t.trip.id, w.title, w.message);
+      const found = warnings(t);
+      if (found.length)
+        notify(
+          s,
+          t.ownerId,
+          t.trip.id,
+          `Trip monitoring update: ${found.length} item${found.length === 1 ? "" : "s"}`,
+          tripCheckSummary(found),
+        );
       t.monitoredVersion = t.version;
     }
   }).catch((e) => console.error("Monitor:", e.message));

@@ -2,8 +2,7 @@ import React, { useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { Compass } from "lucide-react";
 import { api, go } from "./api";
-import { AuthPage } from "./Public";
-import { CelestialLanding, CelestialAuthPage } from "./CelestialPublic";
+import { Landing, AuthPage } from "./Public";
 import {
   TravelerShell,
   TripList,
@@ -98,11 +97,9 @@ function App() {
         </button>
       </div>
     );
-  if (!page) return <CelestialLanding user={user} />;
+  if (!page) return <Landing user={user} />;
   if (["login", "signup", "forgot", "reset", "verify"].includes(page))
-    return ["login", "signup"].includes(page)
-      ? <CelestialAuthPage key={path} mode={page} onAuth={refresh} />
-      : <AuthPage key={path} mode={page} onAuth={refresh} />;
+    return <AuthPage key={path} mode={page} onAuth={refresh} />;
   if (!user) return null;
   const logout = async () => {
     await api("auth/logout", {});
