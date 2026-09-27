@@ -55,7 +55,7 @@ app.use("/api", (req, res, next) => {
     if (req.get("X-Waypoint-Request") !== "1")
       return res.status(403).json({ error: "Request verification missing" });
     const origin = req.get("Origin");
-    if (!originAllowed(origin))
+    if (!originAllowed(origin, req))
       return res.status(403).json({ error: "Origin not allowed" });
   }
   next();

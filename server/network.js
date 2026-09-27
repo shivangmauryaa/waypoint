@@ -14,11 +14,18 @@ export const remoteAccountBlocked = (req, user) =>
   !localRequest(req) &&
   ((user?.role === "admin" && !user.remoteAdminEnabled) ||
     user?.email === "traveler@waypoint.local");
-export function originAllowed(origin) {
-  return (
-    !origin ||
-    /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin) ||
-    allowedOrigins.has(origin) ||
-    (trustTunnel && /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/.test(origin))
-  );
+export function originAllowed(origin, req) {
+  if (!origin) return true;
+  if (/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) return true;
+  if (/^https:\/\/[a-z0-9-]+\.onrender\.com$/.test(origin)) return true;
+  if (allowedOrigins.has(origin)) return true;
+  if (trustTunnel && /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/.test(origin)) return true;
+  if (req && req.get("host")) {
+    const hostHeader = req.get("host");
+    try {
+      const originUrl = new URL(origin);
+      if (originUrl.host === hostHeader) return true;
+    } catch {}
+  }
+  return false;
 }
