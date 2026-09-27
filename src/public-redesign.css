@@ -1,0 +1,538 @@
+/* ============================================================================
+   WAYPOINT PREMIUM STITCH DESIGN SYSTEM — UNIQUE MULTI-SECTION LAYOUT
+   ============================================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,600&display=swap');
+
+:root {
+  --st-font: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --st-blue: #0066ff;
+  --st-blue-hover: #0052cc;
+  --st-dark: #0b132b;
+  --st-slate: #475569;
+  --st-light-bg: #ffffff;
+  --st-card-bg: #f8fafc;
+  --st-border: #e2e8f0;
+  --st-radius: 20px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body, html {
+  margin: 0;
+  padding: 0;
+  font-family: var(--st-font);
+  background-color: var(--st-light-bg);
+  color: var(--st-dark);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Header */
+.st-hero-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 80px;
+  z-index: 100;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.6);
+  display: flex;
+  align-items: center;
+}
+
+.st-header-content {
+  max-width: 1280px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.st-brand-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 20px;
+  font-weight: 800;
+  color: #0b132b;
+  text-decoration: none;
+  letter-spacing: -0.02em;
+}
+
+.st-nav-menu {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
+
+.st-nav-item {
+  font-size: 14px;
+  font-weight: 600;
+  color: #475569;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.st-nav-item:hover {
+  color: #0066ff;
+}
+
+.st-auth-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.st-btn-login {
+  padding: 10px 22px;
+  border-radius: 9999px;
+  background: #f1f5f9;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.st-btn-login:hover {
+  background: #e2e8f0;
+}
+
+.st-btn-get-started {
+  padding: 10px 24px;
+  border-radius: 9999px;
+  background: #0066ff;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 4px 14px rgba(0, 102, 255, 0.3);
+  transition: all 0.2s ease;
+  border: none;
+  cursor: pointer;
+}
+
+.st-btn-get-started:hover {
+  background: #0052cc;
+  box-shadow: 0 6px 20px rgba(0, 102, 255, 0.4);
+  transform: translateY(-1px);
+}
+
+/* Perfect Hero Section Sizing (Fits viewport clean) */
+.st-exact-hero {
+  position: relative;
+  width: 100%;
+  height: calc(100vh - 80px);
+  min-height: 680px;
+  max-height: 840px;
+  margin-top: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.st-hero-background {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.st-hero-stage {
+  max-width: 1280px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0 32px;
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 40px;
+  align-items: center;
+  position: relative;
+  z-index: 10;
+}
+
+.st-tag-line {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #475569;
+  margin-bottom: 16px;
+  display: block;
+}
+
+.st-main-h1 {
+  font-size: 56px;
+  font-weight: 800;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  color: #0b132b;
+  margin: 0 0 20px 0;
+}
+
+.st-blue-text {
+  color: #0066ff;
+}
+
+.st-main-subtext {
+  font-size: 17px;
+  line-height: 1.6;
+  color: #334155;
+  max-width: 500px;
+  margin-bottom: 28px;
+}
+
+.st-hero-cta-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.st-btn-watch-demo {
+  padding: 12px 28px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.st-btn-watch-demo:hover {
+  background: #ffffff;
+  transform: translateY(-1px);
+}
+
+.st-play-icon-blue {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #0066ff;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Floating Disruption Card */
+.st-disruption-matrix-card {
+  width: 100%;
+  max-width: 420px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  padding: 24px;
+  box-shadow: 0 24px 48px -12px rgba(15, 23, 42, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  margin-left: auto;
+}
+
+.st-dm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.st-dm-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.st-dm-flight-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: #fef2f2;
+  color: #ef4444;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.st-dm-delay-tag {
+  font-size: 15px;
+  font-weight: 800;
+  color: #ef4444;
+}
+
+.st-dm-chain-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.st-dm-chain-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: rgba(241, 245, 249, 0.75);
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.st-dm-footer-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-radius: 16px;
+  background: #f1f5f9;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.st-dm-footer-cta:hover {
+  background: #e2e8f0;
+}
+
+.st-check-green {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #10b981;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+
+/* Spatial Pins */
+.st-node-pin {
+  position: absolute;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+}
+
+.st-pin-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #0066ff;
+}
+
+/* Clean Modality Strip Section (Placed below hero clean) */
+.st-modality-section {
+  width: 100%;
+  background: #ffffff;
+  border-top: 1px solid #f1f5f9;
+  border-bottom: 1px solid #f1f5f9;
+  padding: 32px 0;
+}
+
+.st-modality-container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 32px;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 20px;
+}
+
+.st-modality-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  border-radius: 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  transition: all 0.2s ease;
+}
+
+.st-modality-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.04);
+  border-color: #0066ff;
+}
+
+.st-modality-icon-wrapper {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #e0f2fe;
+  color: #0066ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Generic Section Styles */
+.st-section {
+  padding: 96px 0;
+  width: 100%;
+}
+
+.st-section-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 32px;
+}
+
+.st-eyebrow-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-radius: 9999px;
+  background: #e0f2fe;
+  color: #0284c7;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+.st-heading-lg {
+  font-size: 40px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: #0b132b;
+  margin: 0 0 16px 0;
+}
+
+.st-subheading {
+  font-size: 18px;
+  line-height: 1.6;
+  color: #475569;
+  max-width: 600px;
+}
+
+/* Feature Grid 2x3 Bento */
+.st-bento-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 28px;
+  margin-top: 56px;
+}
+
+.st-bento-item {
+  padding: 32px;
+  border-radius: 24px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+  transition: all 0.25s ease;
+}
+
+.st-bento-item:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.08);
+  border-color: #cbd5e1;
+}
+
+.st-bento-icon-badge {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: #f0f7ff;
+  color: #0066ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+/* Metrics Counter Strip */
+.st-metrics-strip {
+  background: #0f172a;
+  color: #ffffff;
+  padding: 64px 0;
+}
+
+.st-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 32px;
+  text-align: center;
+}
+
+.st-metric-number {
+  font-size: 44px;
+  font-weight: 800;
+  color: #38bdf8;
+  line-height: 1;
+  margin-bottom: 8px;
+}
+
+.st-metric-label {
+  font-size: 14px;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+/* Use Cases Cards */
+.st-use-case-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
+  margin-top: 48px;
+}
+
+.st-use-case-card {
+  border-radius: 24px;
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04);
+}
+
+.st-use-case-img {
+  width: 100%;
+  height: 220px;
+  object-fit: cover;
+}
+
+.st-use-case-body {
+  padding: 28px;
+}
