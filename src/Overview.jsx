@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { ArrowRight, ArrowUpRight, Plane, Bot, Luggage, Wallet, TriangleAlert, GitBranch, ShieldCheck, CircleCheck, Heart, MapPin, Compass, LoaderCircle, Bookmark, Building2, CarFront, Hotel, Camera, Check, CircleMinus, CalendarDays } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Plane, Bot, Luggage, Wallet, TriangleAlert, GitBranch, ShieldCheck, CircleCheck, Heart, MapPin, Compass, LoaderCircle, Bookmark, Building2, CarFront, Hotel, Camera, Check, CircleMinus, CalendarDays, Clock, RotateCcw } from "lucide-react";
 import { api } from "./api";
-import { destinations, TripPhoto } from "./BuilderVisuals";
+import { destinations, destinationPhoto, TripPhoto } from "./BuilderVisuals";
 import "./overview.css";
 
 const money = (n) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n || 0);
@@ -13,6 +13,8 @@ const destinationIdeas = {
 };
 const riskLabels = { low: "On track", medium: "Tight connection", high: "Connection at risk", critical: "Disruption active" };
 const tripLink = (city) => `/build?destination=${encodeURIComponent(city)}`;
+const dateLabel = (value) => value ? new Date(`${value}T12:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "Date pending";
+const bookingTime = (value) => value ? new Date(value).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "Time pending";
 
 function Ring({ segments, center, caption, score = false }) {
   const total = segments.reduce((sum, item) => sum + item.value, 0);
@@ -38,14 +40,15 @@ export function Overview({ user }) {
   };
   if (!data) return <div className="loading"><Compass size={35} /><h2>Gathering your travel picture…</h2>{error ? <><p className="error" role="alert">{error}</p><button className="button" onClick={load}>Try again</button></> : <LoaderCircle className="spin" />}</div>;
   const departures = data.departures || [];
-  const upcoming = departures.find((trip) => trip.daysUntil >= 0) || departures[0];
-  const readinessChecks = [[Plane,"Flight confirmed",Boolean(upcoming?.hasFlight)],[Hotel,"Hotel confirmed",Boolean(upcoming?.hasHotel)],[CarFront,"Transport arranged",Boolean(upcoming?.hasTransport)],[Camera,"Activities planned",Boolean(upcoming?.plannedActivities)],[Check,"Travel documents",Boolean(upcoming?.documentsReady)],[ShieldCheck,"No active disruptions",data.disruptions===0]];
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const upcoming = departures.find((trip) => trip.end >= today);
+  const readinessChecks = [[Plane,"Flight or train saved",Boolean(upcoming?.hasFlight)],[Hotel,"Stay saved",Boolean(upcoming?.hasHotel)],[CarFront,"Local transport saved",Boolean(upcoming?.hasTransport)],[Camera,"Activities planned",Boolean(upcoming?.plannedActivities)],[GitBranch,"No connection warnings",Boolean(upcoming && !upcoming.warningCount)],[ShieldCheck,"No active disruption",Boolean(upcoming && !upcoming.disruptionCount)]];
   const destination = destinations.find((place) => upcoming?.destination?.includes(place.name));
   const risks = data.riskCounts || {};
   const atRisk = (risks.critical || 0) + (risks.high || 0);
-  const readiness = data.active ? Math.round((risks.low || 0) / data.active * 100) : 0;
+  const readiness = upcoming ? Math.round(readinessChecks.filter((item) => item[2]).length / readinessChecks.length * 100) : 0;
   const segments = Object.entries(data.byType || {}).sort((a, b) => b[1] - a[1]).map(([label, value], i) => ({ label, value, color: colors[i % colors.length], share: data.value ? Math.round(value / data.value * 100) : 0 }));
-  const tripEnd = upcoming?.start ? new Date(new Date(`${upcoming.start}T12:00:00`).getTime() + Math.max(1, upcoming.hotelNights || 2) * 86400000).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }) : "";
+  const tripEnd = dateLabel(upcoming?.end);
   const nights = upcoming ? Math.max(1, upcoming.hotelNights || 2) : 0;
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
@@ -55,11 +58,12 @@ export function Overview({ user }) {
     [TriangleAlert, "At-risk trips", atRisk, atRisk ? "Review your recovery options" : "All clear", "yellow"],
     [GitBranch, "Connection warnings", data.warnings, data.warnings ? "Needs attention" : "Connections look good", "green"],
   ];
-  const updates = data.risks?.length ? data.risks.slice(0, 3).map((risk) => ({ icon: TriangleAlert, tone: "amber", title: risk.title, note: risk.message, href: `/trip/${risk.tripId}/recovery` })) : [
-    { icon: Plane, tone: "blue", title: "Flight prices to your next destination look steady", note: "We’ll flag drops as soon as they appear." },
-    { icon: Building2, tone: "purple", title: "New stays near your destination", note: "Fresh options are added as searches run." },
-    { icon: ShieldCheck, tone: "green", title: "No connection alerts right now", note: "Your connections have comfortable buffers." },
-  ];
+  const updates = [
+    ...(data.risks || []).map((item) => ({ icon: TriangleAlert, tone: "amber", title: item.title, note: `${item.tripName}: ${item.message}`, href: `/trip/${item.tripId}/recovery` })),
+    ...(data.recentRecoveries || []).map((item) => ({ icon: RotateCcw, tone: "purple", title: `${item.undone ? "Reverted" : "Completed"}: ${item.label}`, note: `${item.tripName} · ${bookingTime(item.appliedAt)}`, href: `/trip/${item.tripId}/activity` })),
+    ...(upcoming?.next ? [{ icon: Clock, tone: "blue", title: `Next: ${upcoming.next.title}`, note: `${bookingTime(upcoming.next.start)} · ${upcoming.next.provider || upcoming.name}`, href: `/trip/${upcoming.id}/overview` }] : []),
+  ].slice(0, 3);
+  if (!updates.length) updates.push({ icon: ShieldCheck, tone: "green", title: "No itinerary alerts", note: "Saved trips and connections have no current warnings.", href: "/trips" });
   return <div className="dash">
     <div className="dash-crumb">Home <span>›</span> Dashboard</div>
 
@@ -79,28 +83,45 @@ export function Overview({ user }) {
 
     <div className="dash-grid-3">
       <section className="dash-card">
-        <Head title="Your Upcoming Trip" subtitle="Your next journey and its current status" href="/trips" link="View All →" />
-        {upcoming ? <><a className="dash-trip-cover" href={`/trip/${upcoming.id}/overview`}><TripPhoto src={destination?.image || "/images/dashboard/landscape.jpg"} alt={upcoming.destination} /><span className={`dash-trip-status ${upcoming.riskLevel}`}><ShieldCheck size={12} />{riskLabels[upcoming.riskLevel] || "Review trip"}</span><div><h3>{upcoming.name}</h3><p><CalendarDays size={12}/>{upcoming.start} <span>–</span> {new Date(new Date(`${upcoming.start}T12:00:00`).getTime()+Math.max(1,upcoming.hotelNights||2)*86400000).toLocaleDateString("en-GB",{day:"numeric",month:"short",timeZone:"UTC"})}<span>·</span><Luggage size={12}/>{upcoming.travelers} {upcoming.travelers===1?"Traveler":"Travelers"}</p></div><span className="dash-trip-open"><ArrowUpRight size={17}/></span></a><div className="dash-trip-meta"><span><Plane size={16}/><span><small>Flight</small><b>{upcoming.hasFlight?(upcoming.departureTime||"Confirmed"):"Not selected"}</b></span></span><span><Hotel size={16}/><span><small>Hotel</small><b>{upcoming.hasHotel?`${upcoming.hotelNights} nights`:"Not selected"}</b></span></span><span><CarFront size={16}/><span><small>Transport</small><b>{upcoming.hasTransport?"Arranged":"Not selected"}</b></span></span><span><Camera size={16}/><span><small>Activities</small><b>{upcoming.plannedActivities?`${upcoming.plannedActivities} planned`:"Explore options"}</b></span></span></div></> : <div className="dash-empty-trip"><Plane size={26} /><h3>Your next chapter is unwritten.</h3><p>No trips to chart yet. Let’s plan something worth looking forward to.</p><a href="/build">Build your first trip <ArrowRight size={14} /></a></div>}
+        <Head title="Your upcoming trip" subtitle="Your next journey and its current status" href="/trips" link="All trips" />
+        {upcoming ? <><a className="dash-trip-cover" href={`/trip/${upcoming.id}/overview`}><TripPhoto src={destination?.image || destinationPhoto(upcoming.destination)} alt={upcoming.destination} /><span className={`dash-trip-status ${upcoming.riskLevel}`}><ShieldCheck size={12} />{riskLabels[upcoming.riskLevel] || "Review trip"}</span><div><h3>{upcoming.name}</h3><p><CalendarDays size={12}/>{upcoming.start} <span>–</span> {tripEnd}<span>·</span><Luggage size={12}/>{upcoming.travelers} {upcoming.travelers===1?"Traveler":"Travelers"}</p></div><span className="dash-trip-open"><ArrowUpRight size={17}/></span></a><div className="dash-trip-meta"><span><Plane size={16}/><span><small>Flight</small><b>{upcoming.hasFlight?(upcoming.departureTime||"Confirmed"):"Not selected"}</b></span></span><span><Hotel size={16}/><span><small>Hotel</small><b>{upcoming.hasHotel?`${upcoming.hotelNights} nights`:"Not selected"}</b></span></span><span><CarFront size={16}/><span><small>Transport</small><b>{upcoming.hasTransport?"Arranged":"Not selected"}</b></span></span><span><Camera size={16}/><span><small>Activities</small><b>{upcoming.plannedActivities?`${upcoming.plannedActivities} planned`:"Explore options"}</b></span></span></div></> : <div className="dash-empty-trip"><Plane size={26} /><h3>Your next chapter is unwritten.</h3><p>No trips to chart yet. Let’s plan something worth looking forward to.</p><a href="/build">Build your first trip <ArrowRight size={14} /></a></div>}
       </section>
 
       <section className="dash-card">
         <Head title="Where the money is" subtitle="Booked value across your active trips" />
         <div className="dash-money"><Ring segments={segments} center={money(data.value)} caption="Total booked" /><div className="dash-legend">{segments.length ? segments.map((s) => <div key={s.label}><span style={{ background: s.color }} /><label>{s.label}</label><b>{money(s.value)}</b><small>{s.share}%</small></div>) : <p>Add bookings to see your spending breakdown.</p>}</div></div>
-        <div className="dash-refund-summary"><span><ShieldCheck size={14} /> Refundable bookings</span><strong>{money(data.refundable)}</strong><div className="dash-refund-bar"><span style={{ width: `${data.value ? Math.min(100, Math.round(data.refundable / data.value * 100)) : 0}%` }} /></div></div>
+        <div className="dash-refund-summary"><span><ShieldCheck size={14} /> Estimated refundable value</span><strong>{money(data.refundable)}</strong><div className="dash-refund-bar"><span style={{ width: `${data.value ? Math.min(100, Math.round(data.refundable / data.value * 100)) : 0}%` }} /></div></div>
       </section>
 
       <section className="dash-card">
-        <Head title="Trip readiness" subtitle="Active trips with no flagged risks" />
-        <div className="dash-readiness"><Ring score segments={[{ value: readiness, color: "#25b77f" }, { value: 100 - readiness, color: "#ecf0f3" }]} center={`${readiness}%`} caption={data.active ? "ON TRACK" : "NO TRIPS YET"} /><div className="dash-checks">{readinessChecks.map(([Icon, label, ready]) => <div key={label} className={ready ? "healthy" : "pending"}><Icon size={14} /><span>{label}</span><span className={`dash-readiness-check ${ready ? "" : "pending"}`}>{ready ? <CircleCheck size={13} /> : <CircleMinus size={13} />}</span></div>)}</div></div>
-        <div className="dash-readiness-note"><ShieldCheck size={13} /> Based on your saved trips and connection checks.</div>
+        <Head title="Next trip readiness" subtitle="Based on the bookings in your next trip" href={upcoming ? `/trip/${upcoming.id}/overview` : undefined} link="Review trip" />
+        <div className="dash-readiness"><Ring score segments={[{ value: readiness, color: "#25b77f" }, { value: 100 - readiness, color: "#ecf0f3" }]} center={`${readiness}%`} caption={upcoming ? "CHECKS READY" : "NO TRIPS YET"} /><div className="dash-checks">{readinessChecks.map(([Icon, label, ready]) => <div key={label} className={ready ? "healthy" : "pending"}><Icon size={14} /><span>{label}</span><span className={`dash-readiness-check ${ready ? "" : "pending"}`}>{ready ? <CircleCheck size={13} /> : <CircleMinus size={13} />}</span></div>)}</div></div>
+        <div className="dash-readiness-note"><ShieldCheck size={13} /> {upcoming ? `${readinessChecks.filter((item) => item[2]).length} of ${readinessChecks.length} trip checks complete · ${upcoming.warningCount || 0} connection warnings` : "Add a trip to start your checklist."}</div>
       </section>
     </div>
 
     {upcoming && <section className="dash-journey-card"><div className="dash-journey-heading"><span><MapPin size={15}/></span><div><b>Your journey at a glance</b><small>{upcoming.destination} · {upcoming.daysUntil >= 0 ? `Trip starts in ${upcoming.daysUntil} days` : "Trip in progress"}</small></div><a href={`/trip/${upcoming.id}/overview`}>Open itinerary <ArrowRight size={12}/></a></div><div className="dash-journey-steps"><div className="complete"><span><Plane size={15}/></span><b>Travel out</b><small>{upcoming.hasFlight ? `Departure ${upcoming.departureTime || "confirmed"}` : "Add your flight details"}</small></div><i/><div className={upcoming.hasHotel ? "complete" : "suggested"}><span><Hotel size={15}/></span><b>Check in</b><small>{upcoming.hasHotel ? `${nights} night stay` : "Choose a place to stay"}</small></div><i/><div className={upcoming.plannedActivities ? "complete" : "suggested"}><span><Camera size={15}/></span><b>Explore</b><small>{upcoming.plannedActivities ? `${upcoming.plannedActivities} activities planned` : "Add a local experience"}</small></div><i/><div className={upcoming.hasTransport ? "complete" : "suggested"}><span><CarFront size={15}/></span><b>Head home</b><small>{upcoming.hasTransport ? "Transport arranged" : `Return · ${tripEnd}`}</small></div></div></section>}
 
+    {upcoming && <div className="dash-detail-grid">
+      <section className="dash-card dash-next-bookings">
+        <Head title="Next trip itinerary" subtitle={`${upcoming.bookings || 0} saved bookings · ${dateLabel(upcoming.start)} to ${tripEnd}`} href={`/trip/${upcoming.id}/overview`} link="Full itinerary" />
+        {(upcoming.bookingPreview || []).length ? upcoming.bookingPreview.map((booking) => {
+          const Icon = booking.type === "flight" || booking.type === "train" ? Plane : booking.type === "hotel" ? Hotel : booking.type === "transfer" ? CarFront : Camera;
+          return <a className="dash-booking-row" href={`/trip/${upcoming.id}/overview`} key={booking.id}><span><Icon size={17}/></span><div><b>{booking.title}</b><small>{booking.provider || "Saved booking"} · {bookingTime(booking.start)}</small></div><ArrowRight size={14}/></a>;
+        }) : <p className="dash-no-data">No bookings saved yet. Open the trip to add your first item.</p>}
+      </section>
+      <section className="dash-card dash-plan-summary">
+        <Head title="Plan details" subtitle="The saved value and status of your next trip" href={`/trip/${upcoming.id}/recovery`} link="Recovery center" />
+        <div className="dash-plan-values"><div><small>Trip value</small><strong>{money(upcoming.value)}</strong></div><div><small>Estimated refundable</small><strong>{money(upcoming.refundable)}</strong></div></div>
+        <p><ShieldCheck size={15}/>{upcoming.disruptionCount ? `${upcoming.disruptionCount} active disruption${upcoming.disruptionCount === 1 ? "" : "s"}` : "No active disruptions"}</p>
+        <p><GitBranch size={15}/>{upcoming.warningCount ? `${upcoming.warningCount} connection warning${upcoming.warningCount === 1 ? "" : "s"} to review` : "No connection warnings"}</p>
+        {upcoming.next && <a className="dash-next-action" href={`/trip/${upcoming.id}/overview`}>Next: {upcoming.next.title}<span>{bookingTime(upcoming.next.start)} <ArrowRight size={13}/></span></a>}
+      </section>
+    </div>}
+
     <div className="dash-grid-3">
       <section className="dash-card">
-        <Head title="Live Travel Updates" subtitle="Things that may affect your plans" href="/notifications" link="See all →" />
+        <Head title="Your trip updates" subtitle="From saved bookings, recovery actions and connection checks" href="/trips" link="All trips" />
         {updates.map((item, i) => { const Icon = item.icon; const inner = <><span className={`dash-feed-icon ${item.tone}`}><Icon size={16} /></span><div><b>{item.title}</b><span>{item.note}</span></div></>; return item.href ? <a className="dash-feed-row" key={i} href={item.href}>{inner}</a> : <div className="dash-feed-row" key={i}>{inner}</div>; })}
       </section>
 

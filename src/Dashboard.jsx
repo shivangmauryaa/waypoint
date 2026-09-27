@@ -3,6 +3,7 @@ import React, { useState, useEffect } from "react";
 import { api, go } from "./api";
 import { navigate } from "./navigation";
 import { BookingEditor, Inventory, TripSettings, Assistant } from "./Workspace";
+import { TripWeather } from "./TripWeather";
 import Ingest from "./Ingest";
 import DependencyGraph from "./DependencyGraph";
 import { RecoveryCenter } from "./RecoveryCenter";
@@ -46,10 +47,13 @@ import {
   Gauge,
   ArrowUpDown,
   Sparkles,
+  CloudRain,
 } from "lucide-react";
 import { destinationPhoto, TripPhoto } from "./BuilderVisuals";
 import "./styles.css";
 import "./trip-overview.css";
+import "./trip-details.css";
+import { TripActivity, TripInsights } from "./TripDetails";
 const icons = {
   flight: Plane,
   train: TrainFront,
@@ -110,6 +114,7 @@ function mapLinks(destination) {
 }
 export const VIEWS = [
   { slug: "overview", label: "Overview", icon: LayoutDashboard, group: "TRIP" },
+  { slug: "weather", label: "Weather", icon: CloudRain, group: "TRIP" },
   {
     slug: "recovery",
     label: "Recovery center",
@@ -204,6 +209,20 @@ export default function Dashboard({
   }
   useEffect(() => {
     request("state");
+  }, [tripId]);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      api(`trips/${tripId}/state`)
+        .then((latest) => setData((current) => current ? ({
+          ...current,
+          cancelled: latest.cancelled,
+          cancelReason: latest.cancelReason,
+          cancelledAt: latest.cancelledAt,
+          archived: latest.archived,
+        }) : current))
+        .catch(() => {});
+    }, 15000);
+    return () => clearInterval(timer);
   }, [tripId]);
   useEffect(() => {
     if (toast) {
@@ -366,7 +385,7 @@ export default function Dashboard({
   return (
     <div
       className={
-        "admin-fullscreen traveler-shell " + (navOpen ? "nav-open" : "")
+        "admin-fullscreen traveler-shell " + (view === "Weather" ? "weather-shell " : "") + (navOpen ? "nav-open" : "")
       }
     >
       {navOpen && (
@@ -424,7 +443,7 @@ export default function Dashboard({
           </div>
         </header>
         <div
-          className={`admin-content${view === "Overview" ? " trip-overview-page" : ""}${view === "Recovery center" ? ` recovery-page ${recoveryPlansOpen ? "recovery-plans-page" : "recovery-overview-page"}` : ""}`}
+          className={`admin-content trip-page-${active.slug}${view === "Overview" ? " trip-overview-page" : ""}${view === "Weather" ? " weather-trip-workspace" : ""}${view === "Recovery center" ? ` recovery-page ${recoveryPlansOpen ? "recovery-plans-page" : "recovery-overview-page"}` : ""}`}
         >
           <nav className="trip-section-tabs" aria-label="Trip navigation">
             {VIEWS.map((item, i) => {
@@ -459,6 +478,20 @@ export default function Dashboard({
               );
             })}
           </nav>
+          {data.cancelled && (
+            <section className="trip-cancelled-notice" role="status" aria-live="polite">
+              <div className="trip-cancelled-icon"><TriangleAlert size={19} /></div>
+              <div>
+                <b>This trip has been cancelled</b>
+                <p>
+                  {data.cancelReason || "An administrator cancelled this trip."}
+                  {data.cancelledAt && <span> · {new Date(data.cancelledAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</span>}
+                </p>
+                <small>Your trip details remain available here. Contact support if you need help with next steps.</small>
+              </div>
+              <a href="/support">Contact support <ArrowRight size={14} /></a>
+            </section>
+          )}
           {user.role === "admin" && data.ownerId !== user.id && (
             <div className="notice">
               Administrator support mode. Changes to this traveler’s trip are
@@ -496,7 +529,7 @@ export default function Dashboard({
               {time(data.clock)} IST
             </span>
           </div>
-          <section className="page-heading">
+          {view !== "Weather" && <section className={`page-heading${view === "Assistant" ? " assistant-page-heading" : ""}`}>
             <div>
               <div className="eyebrow">EVERY JOURNEY DESERVES A PLAN B</div>
               <h1>
@@ -521,16 +554,28 @@ export default function Dashboard({
               <p>
                 {view === "Overview"
                   ? "Your plans in one place. A way forward, whatever comes your way."
-                  : "Thoughtful decisions for the trip you want to take."}
+                  : view === "Trip insights"
+                    ? "Understand the trip cost, timing and connections at a glance."
+                    : view === "Activity"
+                      ? "A clear record of recovery changes and your current plan."
+                      : view === "Preferences"
+                        ? "Set the trade-offs Waypoint should use for recovery options."
+                        : view === "Inventory"
+                          ? "Manage replacement options for each saved booking."
+                          : view === "Refund policies"
+                            ? "See what may be refundable before you change a booking."
+                            : view === "Trip settings"
+                              ? "Update trip details, simulation time and exports."
+                              : "Thoughtful decisions for the trip you want to take."}
               </p>
             </div>
-            <button
+            {(["Overview", "Recovery center"].includes(view)) && <button
               className="button primary"
               onClick={() => setModal({ type: "disruption" })}
             >
               <Plus size={16} /> Simulate disruption
-            </button>
-          </section>
+            </button>}
+          </section>}
           {error && (
             <div className="error" role="alert">
               {error}
@@ -542,120 +587,9 @@ export default function Dashboard({
           {view === "Inventory" && (
             <Inventory data={data} request={request} open={setModal} />
           )}
-          {view === "Assistant" && <Assistant tripId={tripId} />}
-          {view === "Trip insights" && info && (
-            <>
-              <section className="stats insights-stats">
-                <div>
-                  <span className="stat-icon purple">
-                    <Wallet size={20} />
-                  </span>
-                  <div>
-                    <span>Booked trip value</span>
-                    <strong>
-                      {money(info.value)}
-                      <small>{money(info.perTraveler)} per traveler</small>
-                    </strong>
-                  </div>
-                </div>
-                <div>
-                  <span className="stat-icon">
-                    <ShieldCheck size={20} />
-                  </span>
-                  <div>
-                    <span>Still refundable</span>
-                    <strong>
-                      {money(info.refundable)}
-                      <small>
-                        {money(info.refundExposure)} outside deadlines
-                      </small>
-                    </strong>
-                  </div>
-                </div>
-                <div>
-                  <span className="stat-icon orange">
-                    <Clock size={20} />
-                  </span>
-                  <div>
-                    <span>Next up</span>
-                    <strong>
-                      {info.next ? `${info.next.minutesUntil} min` : "—"}
-                      <small>
-                        {info.next ? info.next.title : "Nothing upcoming"}
-                      </small>
-                    </strong>
-                  </div>
-                </div>
-                <div>
-                  <span className="stat-icon blue">
-                    <GitBranch size={20} />
-                  </span>
-                  <div>
-                    <span>Connection warnings</span>
-                    <strong>
-                      {info.warnings}
-                      <small>{info.upcoming} bookings upcoming</small>
-                    </strong>
-                  </div>
-                </div>
-              </section>
-              <div className="dashboard-grid">
-                <section className="card insight">
-                  <div className="section-title">
-                    <div>
-                      <h2>
-                        <Wallet size={17} /> Where the money goes
-                      </h2>
-                      <p>Party-total booking value by type.</p>
-                    </div>
-                  </div>
-                  {Object.entries(info.byType)
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([type, amount]) => (
-                      <div className="breakdown-row" key={type}>
-                        <span>{type}</span>
-                        <div className="breakdown-bar">
-                          <i
-                            style={{
-                              width: `${Math.round(
-                                (amount / (info.value || 1)) * 100,
-                              )}%`,
-                            }}
-                          />
-                        </div>
-                        <strong>{money(amount)}</strong>
-                      </div>
-                    ))}
-                </section>
-                <aside className="right-column">
-                  <section className="card insight">
-                    <div className="section-title">
-                      <h2>
-                        <Clock size={17} /> Trip rhythm
-                      </h2>
-                      <span className="tiny-dot" />
-                    </div>
-                    <p>
-                      {info.daysUntil > 0
-                        ? `Departure is about ${info.daysUntil} day(s) away.`
-                        : "This trip is already underway."}{" "}
-                      {info.bookings} bookings for {info.travelers} travelers.
-                    </p>
-                    {info.next && (
-                      <div className="insight-item">
-                        <span className="insight-label">NEXT BOOKING</span>
-                        <h3>{info.next.title}</h3>
-                        <p>
-                          {info.next.provider} · in {info.next.minutesUntil}{" "}
-                          minutes of trip time
-                        </p>
-                      </div>
-                    )}
-                  </section>
-                </aside>
-              </div>
-            </>
-          )}
+          {view === "Assistant" && <Assistant tripId={tripId} data={data} onState={setData} onAddBooking={() => setModal({ type: "editBooking" })} onOpenRecovery={() => openView("recovery")} onOpenItinerary={() => openView("overview")} />}
+          {view === "Weather" && <TripWeather tripId={tripId} data={data} onNavigate={openView} />}
+          {view === "Trip insights" && info && <TripInsights tripId={tripId} data={data} info={info} />}
           {view === "Trip settings" && (
             <TripSettings
               data={data}
@@ -990,13 +924,18 @@ export default function Dashboard({
                 busy={busy}
                 onTrigger={async (event) => {
                   const ok = await request("disruptions", event);
-                  if (ok) setRecoveryPlansOpen(true);
+                  if (ok) {
+                    await request("bookings/" + event.bookingId + "/generate-alternatives", {});
+                    setRecoveryPlansOpen(true);
+                  }
                   return ok;
                 }}
                 onClear={() => request("disruptions", {}, "DELETE")}
                 onPreferences={() => setView("Preferences")}
                 tripId={tripId}
-                onReplace={(bookingId, offerId) => request("bookings/" + bookingId + "/replace", { offerId })}
+                onGenerateOptions={(bookingId) => request("bookings/" + bookingId + "/generate-alternatives", {})}
+                onReplace={(bookingId, offerId, version) => request("bookings/" + bookingId + "/replace", { offerId, version })}
+                onCancelBooking={(bookingId, version) => request("bookings/" + bookingId + "/cancel", { version })}
                 onUndo={() => setModal({ type: "undo" })}
               />
               {hasDisruption && recoveryPlansOpen && <>
@@ -1096,68 +1035,7 @@ export default function Dashboard({
               }}
             />
           )}
-          {view === "Activity" && (
-            <section className="card history">
-              <div className="section-title">
-                <h2>Recovery history</h2>
-                {data.history[0] && !data.history[0].undone && (
-                  <button
-                    className="button"
-                    disabled={busy}
-                    onClick={() => setModal({ type: "undo" })}
-                  >
-                    Undo latest recovery
-                  </button>
-                )}
-                <button
-                  className="button"
-                  onClick={() => setModal({ type: "import" })}
-                >
-                  Import JSON
-                </button>
-                <a className="button" href={`/api/trips/${tripId}/export`}>
-                  <Download size={15} />
-                  Export JSON
-                </a>
-                <a className="button" href={`/api/trips/${tripId}/export.csv`}>
-                  <Download size={15} />
-                  Export CSV
-                </a>
-              </div>
-              {!data.history.length ? (
-                <div className="empty">
-                  <History size={36} />
-                  <h2>A fresh start.</h2>
-                  <p>Applied recovery plans will appear here.</p>
-                </div>
-              ) : (
-                data.history.map((h) => (
-                  <div className="history-row" key={h.id}>
-                    <CheckCircle2 />
-                    <div>
-                      <h3>
-                        {h.label}{" "}
-                        {h.undone && <span className="tag">Reverted</span>}
-                      </h3>
-                      <p>
-                        {h.changes.length} bookings updated ·{" "}
-                        {new Date(h.appliedAt).toLocaleString()}
-                      </p>
-                    </div>
-                    <strong>{money(h.net)}</strong>
-                    <button
-                      className="text-button"
-                      disabled={busy}
-                      onClick={() => setModal({ type: "restore", h })}
-                    >
-                      <RotateCcw size={13} />
-                      Restore
-                    </button>
-                  </div>
-                ))
-              )}
-            </section>
-          )}
+          {view === "Activity" && <TripActivity tripId={tripId} data={data} info={info} busy={busy} setModal={setModal} />}
           <footer>
             <span>
               <Compass size={14} /> A way forward, wherever you are.

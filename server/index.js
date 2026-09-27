@@ -1,4 +1,5 @@
 import express from "express";
+import nodemailer from "nodemailer";
 import { resolve } from "node:path";
 import { z } from "zod";
 import {
@@ -42,6 +43,14 @@ import {
 } from "./schema.js";
 import tripBuilder from "./tripbuilder/index.js";
 import { PAGE as TRIP_BUILDER_PAGE } from "./tripbuilder/page.js";
+import * as ai from "./ai.js";
+import { getTripWeather, weatherSummary } from "./weather.js";
+
+// Load a local .env if present (gitignored) so NUGEN_API_KEY etc. are picked up.
+try {
+  process.loadEnvFile?.();
+} catch {}
+
 const app = express();
 app.disable("x-powered-by");
 app.use(express.json({ limit: "3mb" }));
@@ -139,6 +148,56 @@ function mailToken(s, user, type) {
     status: "local-only",
     at: now(),
   });
+}
+let mailTransport;
+function getMailTransport() {
+  if (!process.env.SMTP_HOST || !process.env.SMTP_FROM) return null;
+  if (!mailTransport) {
+    mailTransport = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT || 587),
+      secure: String(process.env.SMTP_SECURE || "").toLowerCase() === "true",
+      auth: process.env.SMTP_USER
+        ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD }
+        : undefined,
+    });
+  }
+  return mailTransport;
+}
+async function deliverAdminEmail(to, subject, body) {
+  const message = { id: id(), to, subject, body, at: now(), status: "not_configured" };
+  const transport = getMailTransport();
+  if (transport && to) {
+    try {
+      const sent = await transport.sendMail({
+        from: process.env.SMTP_FROM,
+        replyTo: process.env.SMTP_REPLY_TO || undefined,
+        to,
+        subject,
+        text: body,
+        headers: { "Auto-Submitted": "auto-generated" },
+      });
+      message.status = "sent";
+      message.messageId = sent.messageId;
+    } catch (error) {
+      message.status = "failed";
+      message.detail = String(error?.message || "Email delivery failed.").slice(0, 300);
+    }
+  } else if (!to) {
+    message.status = "unavailable";
+    message.detail = "Traveler email address is missing.";
+  }
+  await mutate((s) => s.outbox.unshift(message));
+  return { status: message.status, to: message.to };
+}
+function adminTripNotice(s, trip, subject, body) {
+  notify(s, trip.ownerId, trip.trip.id, subject, body, { emailPreview: false });
+  const traveler = s.users.find((user) => user.id === trip.ownerId);
+  return { to: traveler?.email || "", subject, body, tripName: trip.trip.name };
+}
+async function sendTripActionEmail(result) {
+  const body = `${result.body}\n\nTrip: ${result.tripName}\n\nThis update was sent by the Waypoint travel team.`;
+  return deliverAdminEmail(result.to, result.subject, body);
 }
 app.get("/api/auth/me", (req, res) =>
   res.json({ user: req.user ? publicUser(req.user) : null }),
@@ -399,9 +458,17 @@ app.get("/api/overview", (req, res) => {
         name: r.t.trip.name,
         destination: r.t.trip.destination,
         start: r.t.trip.start,
-        daysUntil: r.info.daysUntil,
+        end: r.t.trip.end,
+        daysUntil: Math.ceil((Date.parse(`${r.t.trip.start}T00:00:00+05:30`) - Date.now()) / 86400000),
         riskLevel: level(r),
         travelers: r.t.trip.travelers,
+        bookings: r.info.bookings,
+        value: r.info.value,
+        refundable: r.info.refundable,
+        next: bookings.filter((booking) => Date.parse(booking.start) >= Date.now()).sort((a, b) => Date.parse(a.start) - Date.parse(b.start)).map((booking) => ({ id: booking.id, title: booking.title, provider: booking.provider, start: booking.start }))[0] || null,
+        warningCount: r.risks.length,
+        disruptionCount: r.t.disruptions.length,
+        bookingPreview: bookings.slice().sort((a, b) => Date.parse(a.start) - Date.parse(b.start)).slice(0, 4).map((booking) => ({ id: booking.id, title: booking.title, type: booking.type, provider: booking.provider, start: booking.start })),
         departureTime: flight ? new Date(flight.start).toLocaleTimeString("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" }) : "",
         hotelNights: Math.max(0, Math.round((Date.parse(r.t.trip.end) - Date.parse(r.t.trip.start)) / 86400000)),
         hasFlight: Boolean(flight),
@@ -410,7 +477,7 @@ app.get("/api/overview", (req, res) => {
         plannedActivities: bookings.filter((booking) => booking.type === "activity").length,
         };
       })
-      .sort((a, b) => a.daysUntil - b.daysUntil),
+      .sort((a, b) => Date.parse(a.start) - Date.parse(b.start)),
     risks: rows.flatMap((r) =>
       r.risks.map((w) => ({
         ...w,
@@ -425,6 +492,7 @@ app.get("/api/overview", (req, res) => {
         .filter((h) => !h.undone)
         .reduce((n, h) => n + (h.net || 0), 0),
     },
+    recentRecoveries: trips.flatMap((t) => (t.history || []).map((item) => ({ id: item.id, tripId: t.trip.id, tripName: t.trip.name, label: item.label, appliedAt: item.appliedAt, undone: Boolean(item.undone) }))).sort((a, b) => Date.parse(b.appliedAt) - Date.parse(a.appliedAt)).slice(0, 3),
   });
 });
 app.post("/api/trips", async (req, res) => {
@@ -478,6 +546,11 @@ app.delete("/api/trips/:tripId", async (req, res) => {
 app.get("/api/trips/:tripId/state", (req, res) =>
   res.json(snapshot(owned(state, req))),
 );
+app.get("/api/trips/:tripId/weather", async (req, res) => {
+  const trip = owned(state, req);
+  res.set("Cache-Control", "private, max-age=120");
+  res.json(await getTripWeather(trip.trip.destination));
+});
 app.post("/api/trips/:tripId/parse", async (req, res) => {
   owned(state, req);
   const input = z
@@ -621,6 +694,36 @@ app.post("/api/trips/:tripId/generate-inventory", async (req, res) => {
 });
 // Per-booking alternative search: targeted replacements for one booking only.
 // Every value is derived from stored booking/offer/policy data; nothing live.
+app.post("/api/trips/:tripId/bookings/:bookingId/generate-alternatives", async (req, res) => {
+  const current = owned(state, req);
+  const booking = current.trip.bookings.find((item) => item.id === req.params.bookingId);
+  if (!booking) fail(404, "Booking not found");
+  if (current.offers.some((offer) => offer.bookingId === booking.id && offer.source === "demo")) return res.json(snapshot(current));
+  const providers = {
+    flight: ["IndiGo · demo", "Air India · demo", "Vistara · demo"],
+    train: ["Rail alternative · demo", "Express train · demo", "Intercity train · demo"],
+    transfer: ["Ola · demo", "Rapido · demo", "Local taxi · demo"],
+    hotel: ["Nearby hotel · demo", "City stay · demo", "Airport hotel · demo"],
+    activity: ["Guided alternative · demo", "Local experience · demo", "Private visit · demo"],
+    event: ["Nearby reservation · demo", "Hotel restaurant · demo", "Local dining · demo"],
+  };
+  await change(req, res, "recovery.options-generated", (t) => {
+    const b = t.trip.bookings.find((item) => item.id === req.params.bookingId);
+    if (!b) fail(404, "Booking not found");
+    if (t.offers.some((offer) => offer.bookingId === b.id && offer.source === "demo")) return;
+    const names = providers[b.type] || ["Alternative · demo", "Flexible option · demo", "Local option · demo"];
+    t.offers.push(...names.map((provider, index) => ({
+      ...b,
+      id: id(),
+      bookingId: b.id,
+      provider,
+      price: Math.max(0, Math.round(b.price * [0.95, 0.82, 1.12][index])),
+      seats: t.trip.travelers + 2,
+      accessible: true,
+      source: "demo",
+    })));
+  });
+});
 app.get("/api/trips/:tripId/bookings/:bookingId/alternatives", (req, res) => {
   const t = owned(state, req);
   const b = t.trip.bookings.find((x) => x.id === req.params.bookingId);
@@ -678,6 +781,7 @@ app.get("/api/trips/:tripId/bookings/:bookingId/alternatives", (req, res) => {
           : !chain
             ? "Would break an upstream or downstream connection."
             : "Fits your current connections.",
+        source: o.source || "demo",
       };
     })
     .sort(
@@ -699,14 +803,16 @@ app.get("/api/trips/:tripId/bookings/:bookingId/alternatives", (req, res) => {
     },
     policy: p,
     originalPrice: b.price,
+    version: t.version,
     alternatives,
   });
 });
 // Apply a single-booking replacement (partial recovery). Unaffected bookings
 // and their dependencies are left untouched.
 app.post("/api/trips/:tripId/bookings/:bookingId/replace", async (req, res) => {
-  const v = z.object({ offerId: z.string().min(1).max(120) }).parse(req.body);
+  const v = z.object({ offerId: z.string().min(1).max(120), version: z.number().int().optional() }).parse(req.body);
   await change(req, res, "recovery.replaced", (t, s) => {
+    if (v.version !== undefined && v.version !== t.version) fail(409, "The itinerary changed. Refresh this booking and review the latest options.");
     const i = t.trip.bookings.findIndex((b) => b.id === req.params.bookingId);
     if (i < 0) fail(404, "Booking not found");
     const offer = t.offers.find(
@@ -761,8 +867,10 @@ app.post("/api/trips/:tripId/bookings/:bookingId/replace", async (req, res) => {
           before: before.start,
           after: offer.start,
           provider: offer.provider,
+          fromProvider: before.provider,
           cost: offer.price,
           refund: p.amount,
+          kind: "replaced",
           reason: "Single-booking recovery",
         },
       ],
@@ -777,6 +885,29 @@ app.post("/api/trips/:tripId/bookings/:bookingId/replace", async (req, res) => {
       "Recovery applied",
       `${before.title} was replaced with ${offer.provider}. Estimated additional cost INR ${offer.price - p.amount}.`,
     );
+  });
+});
+app.post("/api/trips/:tripId/bookings/:bookingId/cancel", async (req, res) => {
+  const { version } = z.object({ version: z.number().int() }).parse(req.body);
+  await change(req, res, "recovery.cancelled", (t, s) => {
+    if (version !== t.version) fail(409, "The itinerary changed. Refresh this booking before cancelling it.");
+    const booking = t.trip.bookings.find((item) => item.id === req.params.bookingId);
+    if (!booking) fail(404, "Booking not found");
+    const dependent = t.trip.bookings.find((item) => item.dependencies.some((link) => link.id === booking.id));
+    if (dependent) fail(409, `${dependent.title} depends on this booking. Review a recovery plan or replace it first.`);
+    const refund = policy(t).find((item) => item.id === booking.id)?.amount || 0;
+    t.history.unshift({
+      id: id(), appliedAt: now(), label: `Cancelled ${booking.title}`, net: -refund,
+      partial: true,
+      changes: [{ bookingId: booking.id, title: booking.title, before: booking.start, after: null, provider: null, fromProvider: booking.provider, cost: 0, refund, kind: "cancelled", reason: "Traveler changed plans" }],
+      previousBookings: structuredClone(t.trip.bookings),
+      previousOffers: structuredClone(t.offers),
+      previousDisruptions: structuredClone(t.disruptions),
+    });
+    t.trip.bookings = t.trip.bookings.filter((item) => item.id !== booking.id);
+    t.offers = t.offers.filter((offer) => offer.bookingId !== booking.id);
+    t.disruptions = t.disruptions.filter((item) => item.bookingId !== booking.id);
+    notify(s, t.ownerId, t.trip.id, "Booking removed from itinerary", `${booking.title} was removed from your local itinerary. Estimated refund: INR ${refund}. Confirm cancellation with the supplier.`);
   });
 });
 app.post("/api/trips/:tripId/disruptions", async (req, res) => {
@@ -994,71 +1125,138 @@ app.get("/api/trips/:tripId/calendar", (req, res) => {
       ].join("\r\n"),
     );
 });
-app.post("/api/trips/:tripId/assistant", (req, res) => {
+const assistantActionSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("updateTrip"), patch: z.object({ name: z.string().trim().min(1).max(200).optional(), subtitle: z.string().max(300).optional(), destination: z.string().trim().min(1).max(100).optional(), travelers: z.number().int().min(1).max(20).optional(), start: z.iso.date().optional(), end: z.iso.date().optional() }).strict() }),
+  z.object({ type: z.literal("updatePreferences"), patch: preferencesSchema.partial() }),
+  z.object({ type: z.literal("reportDisruption"), bookingId: z.string(), disruptionType: z.enum(types), delayMinutes: z.number().int().min(0).max(10080).default(0), note: z.string().max(500).default("") }),
+  z.object({ type: z.literal("applyRecovery"), planId: z.string(), version: z.number().int() }),
+  z.object({ type: z.literal("editBooking"), bookingId: z.string(), patch: z.object({ title: z.string().min(1).max(200).optional(), provider: z.string().max(200).optional(), start: z.string().optional(), end: z.string().optional(), price: z.number().min(0).max(10000000).optional(), from: z.string().min(1).max(100).optional(), to: z.string().min(1).max(100).optional() }).strict() }),
+  z.object({ type: z.literal("undoRecovery") }),
+]);
+
+function tripAssistantIntent(message, t) {
+  const text = message.trim();
+  let m;
+  if ((m = text.match(/(?:rename|rename this|call this)\s+(?:trip\s+)?(?:to\s+)?["“]?(.+?)["”]?$/i)))
+    return { type: "updateTrip", patch: { name: m[1].trim() } };
+  if ((m = text.match(/(?:change|set|update)\s+(?:the\s+)?destination\s+to\s+([\p{L} .'-]+)$/iu)))
+    return { type: "updateTrip", patch: { destination: m[1].trim() } };
+  if ((m = text.match(/(?:set|change|make)\s+(?:the\s+)?travellers?\s+(?:to\s+)?(\d+)/i)) || (m = text.match(/(\d+)\s+travellers?/i)))
+    return { type: "updateTrip", patch: { travelers: Number(m[1]) } };
+  if ((m = text.match(/(?:set|change|update)\s+(?:the\s+)?(?:trip\s+)?(start|end)\s+date\s+to\s+(\d{4}-\d{2}-\d{2})/i)))
+    return { type: "updateTrip", patch: { [m[1].toLowerCase()]: m[2] } };
+  if ((m = text.match(/(?:set|change|update)\s+(?:my\s+)?budget\s+(?:to\s+)?(?:INR|₹)?\s*([\d,]+)/i)))
+    return { type: "updatePreferences", patch: { budget: Number(m[1].replaceAll(",", "")) } };
+  if (/prefer(?:ence)?s?\s+(?:to\s+)?(?:the\s+)?cheapest|make it cheaper|prioriti[sz]e cost/i.test(text))
+    return { type: "updatePreferences", patch: { priority: "budget" } };
+  if (/prioriti[sz]e (?:time|speed)|fastest option/i.test(text))
+    return { type: "updatePreferences", patch: { priority: "fastest" } };
+  if (/keep existing bookings|preserve my bookings/i.test(text))
+    return { type: "updatePreferences", patch: { priority: "preserve" } };
+  if ((m = text.match(/(?:set|change|update)\s+accessibility\s+(on|off|enabled|disabled)/i)))
+    return { type: "updatePreferences", patch: { accessible: /on|enabled/i.test(m[1]) } };
+  if (/undo (?:the )?(?:last )?recovery|reverse (?:the )?(?:last )?recovery/i.test(text) && t.history?.[0] && !t.history[0].undone)
+    return { type: "undoRecovery" };
+
+  const kind = /flight/i.test(text) ? "flight" : /train/i.test(text) ? "train" : /hotel|stay|room/i.test(text) ? "hotel" : /transfer|taxi|cab|transport/i.test(text) ? "transfer" : /restaurant|dinner|lunch|food/i.test(text) ? null : /activity|tour|attraction|museum|show/i.test(text) ? "activity" : null;
+  if (/\b(cancel|missed|delay|delayed|replace|change|rebook|unavailable)\b/i.test(text)) {
+    const terms = text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((x) => x.length > 3);
+    const matches = t.trip.bookings.filter((b) => {
+      const title = `${b.title} ${b.provider} ${b.type}`.toLowerCase();
+      return kind ? b.type === kind || (kind === "activity" && ["event", "activity"].includes(b.type)) : terms.some((x) => title.includes(x));
+    });
+    const unique = [...new Map(matches.map((b) => [b.id, b])).values()];
+    if (unique.length === 1) {
+      const booking = unique[0];
+      const disruptionType = /missed/i.test(text) ? "missed_connection" : /delay|delayed/i.test(text) ? "delay" : "cancellation";
+      const mins = text.match(/(\d+)\s*(?:min|minutes?)/i);
+      return { type: "reportDisruption", bookingId: booking.id, disruptionType, delayMinutes: disruptionType === "delay" ? Number(mins?.[1] || 60) : 0, note: text.slice(0, 500) };
+    }
+  }
+  const priceMatch = text.match(/(?:change|set|update)\s+(?:the\s+)?(?:price|cost)\s+(?:of\s+)?(.+?)\s+to\s+(?:INR|₹)?\s*([\d,]+)/i);
+  if (priceMatch) {
+    const target = priceMatch[1].toLowerCase();
+    const booking = t.trip.bookings.find((b) => `${b.title} ${b.provider} ${b.type}`.toLowerCase().includes(target));
+    if (booking) return { type: "editBooking", bookingId: booking.id, patch: { price: Number(priceMatch[2].replaceAll(",", "")) } };
+  }
+  return null;
+}
+
+app.post("/api/trips/:tripId/assistant", async (req, res) => {
+  const { message, action, confirm = false } = z.object({ message: z.string().trim().min(1).max(2000), action: assistantActionSchema.optional(), confirm: z.boolean().optional() }).parse(req.body);
   const t = owned(state, req);
-  const { message } = z
-    .object({ message: z.string().min(1).max(2000) })
-    .parse(req.body);
-  const p = recover(t),
-    w = warnings(t),
-    hits = impacted(t).filter((i) => i.affected),
-    info = insights(t);
+  const command = action || tripAssistantIntent(message, t);
+  if (command) {
+    const parsed = assistantActionSchema.parse(command);
+    const booking = parsed.bookingId ? t.trip.bookings.find((b) => b.id === parsed.bookingId) : null;
+    const recoveryPlan = parsed.type === "applyRecovery" ? recover(t).find((p) => p.id === parsed.planId) : null;
+    const label = parsed.type === "updateTrip" ? "Update trip details" : parsed.type === "updatePreferences" ? "Update recovery preferences" : parsed.type === "reportDisruption" ? `Report ${parsed.disruptionType.replaceAll("_", " ")} for ${booking?.title || "booking"}` : parsed.type === "editBooking" ? `Update ${booking?.title || "booking"}` : parsed.type === "applyRecovery" ? `Apply ${recoveryPlan?.label || "recovery plan"}` : "Undo the latest recovery";
+    if (!confirm) return res.json({ answer: `I can ${label.toLowerCase()}. Review the change below and confirm when you're ready.`, proposal: { ...parsed, label, detail: parsed.type === "applyRecovery" && recoveryPlan ? `Estimated net change: INR ${recoveryPlan.net}. ${recoveryPlan.changes.length} booking changes.` : parsed.type === "reportDisruption" ? "This records the disruption and recalculates which later bookings are affected. It does not contact a supplier." : "This change is saved to your trip and can be reviewed in the trip workspace." } });
+    if (parsed.type === "reportDisruption" && !booking) fail(404, "That booking is no longer in this trip");
+    if (parsed.type === "applyRecovery" && (!recoveryPlan || parsed.version !== t.version)) fail(409, "The recovery plan changed. Refresh recovery options and try again.");
+    await mutate((s) => {
+      const trip = owned(s, req);
+      if (parsed.type === "updateTrip") {
+        const { start, end, ...fields } = parsed.patch;
+        Object.assign(trip.trip, fields, ...(start ? [{ start }] : []), ...(end ? [{ end }] : []));
+        if (trip.trip.end < trip.trip.start) fail(400, "Trip end must follow its start");
+        validateImport(trip);
+      } else if (parsed.type === "updatePreferences") {
+        trip.preferences = preferencesSchema.parse({ ...trip.preferences, ...parsed.patch });
+      } else if (parsed.type === "editBooking") {
+        const index = trip.trip.bookings.findIndex((b) => b.id === parsed.bookingId);
+        if (index < 0) fail(404, "Booking not found");
+        trip.trip.bookings[index] = bookingSchema.parse({ ...trip.trip.bookings[index], ...parsed.patch });
+        validateImport(trip);
+      } else if (parsed.type === "reportDisruption") {
+        const item = trip.trip.bookings.find((b) => b.id === parsed.bookingId);
+        if (!item) fail(404, "Booking not found");
+        trip.disruptions = trip.disruptions.filter((d) => d.bookingId !== item.id);
+        trip.disruptions.push({ id: id(), bookingId: item.id, type: parsed.disruptionType, delayMinutes: parsed.delayMinutes, note: parsed.note, occurredAt: trip.clock || now() });
+        notify(s, trip.ownerId, trip.trip.id, "Travel disruption", `${item.title}: ${parsed.disruptionType.replaceAll("_", " ")}. Review recovery options.`);
+      } else if (parsed.type === "applyRecovery") {
+        if (trip.version !== parsed.version) fail(409, "Your itinerary changed. Refresh and compare the latest plans.");
+        const plan = recover(trip).find((p) => p.id === parsed.planId);
+        if (!plan) fail(409, "Recovery plan no longer available");
+        trip.history.unshift({ id: id(), appliedAt: now(), label: plan.label, net: plan.net, changes: plan.changes, previousBookings: trip.trip.bookings, previousOffers: trip.offers, previousDisruptions: trip.disruptions });
+        trip.trip.bookings = plan.bookings; trip.offers = trip.offers.filter((o) => !plan.bookings.some((b) => b.offerId === o.id)); trip.disruptions = [];
+        notify(s, trip.ownerId, trip.trip.id, "Recovery applied", `${plan.label}: ${plan.changes.length} booking updates. Estimated additional cost INR ${plan.net}. Supplier confirmations are not connected.`);
+      } else if (parsed.type === "undoRecovery") {
+        const h = trip.history[0];
+        if (!h || h.undone) fail(400, "No recovery to undo");
+        trip.trip.bookings = h.previousBookings; trip.offers = h.previousOffers || []; trip.disruptions = h.previousDisruptions || []; h.undone = true;
+      }
+      trip.version++;
+      audit(s, req.user.id, `assistant.${parsed.type}`, trip.trip.id, label);
+    });
+    const updated = owned(state, req);
+    const snapshotData = snapshot(updated);
+    const newPlans = recover(updated);
+    return res.json({ answer: `${label} is complete. I refreshed your trip details and recovery options.`, state: snapshotData, plans: newPlans, proposal: null });
+  }
+
+  const fresh = owned(state, req), plans = recover(fresh), warningList = warnings(fresh), impact = impacted(fresh), info = insights(fresh);
+  const bookingsText = fresh.trip.bookings.map((b) => `${b.title} (${b.type}) by ${b.provider}, ${new Date(b.start).toLocaleString("en-GB", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} IST, INR ${b.price}, ${b.status}`).join("\n");
+  const weatherQuestion = /weather|rain|storm|temperature|forecast|umbrella|visit there|outdoor|air quality/i.test(message);
+  const liveWeather = weatherQuestion ? await getTripWeather(fresh.trip.destination) : null;
+  const context = `Trip: ${fresh.trip.name}; destination: ${fresh.trip.destination}; ${fresh.trip.start} to ${fresh.trip.end}; ${fresh.trip.travelers} traveler(s). Budget INR ${fresh.preferences.budget}; priority ${fresh.preferences.priority}; accessibility ${fresh.preferences.accessible ? "on" : "off"}. Booked value INR ${info.value}; refundable INR ${info.refundable}; refund exposure INR ${info.refundExposure}.\nBookings:\n${bookingsText || "No bookings."}\nDisruptions: ${fresh.disruptions.map((d) => `${d.type} on ${fresh.trip.bookings.find((b) => b.id === d.bookingId)?.title || "booking"}`).join("; ") || "none"}\nConnection warnings: ${warningList.map((w) => w.message).join("; ") || "none"}\nRecovery plans: ${plans.map((p) => `${p.label}, net INR ${p.net}, changes ${p.changes.length}`).join("; ") || "none"}.${liveWeather ? `\nLive destination weather and recent headlines: ${weatherSummary(liveWeather)}\nTrip itinerary affected by weather: ${fresh.trip.bookings.map((b) => `${b.title} (${b.type}), ${b.start}`).join("; ")}` : ""}`;
   let answer;
-  if (/cost|refund|cheap|budget/i.test(message))
-    answer = p.length
-      ? `The recommended plan adds INR ${p[0].net}: INR ${p[0].gross} in replacements less INR ${p[0].refund} estimated refunds. Your budget is INR ${t.preferences.budget}. Policies are illustrative; no refund has been issued.`
-      : "Report a disruption to calculate replacement costs and refunds. You can adjust your budget in Preferences.";
+  if (/\b(add|create|book)\b.*\b(booking|flight|hotel|activity|restaurant|transfer)\b/i.test(message)) answer = "I can add it to your trip. Use “Add a booking” to enter the provider, times, route and price, or describe those details and I’ll prepare a reviewable draft. I won’t invent availability or prices.";
+  else if (/itinerary|all bookings|list bookings|what.*booked/i.test(message)) answer = `Here is your current itinerary:\n${bookingsText || "No bookings have been added yet."}`;
+  else if (/risk|connect|warning|affected/i.test(message) && !/weather/i.test(message)) answer = warningList.length ? warningList.map((x) => x.message).join("\n") : "There are no connection warnings in the current itinerary.";
+  else if (/recover|alternative|plan b/i.test(message)) answer = plans.length ? `${plans.length} recovery option(s) are ready. Recommended: ${plans[0].label}, estimated net INR ${plans[0].net}, changing ${plans[0].changes.length} booking(s). Choose “Review recovery options” to compare and apply a plan.` : "There are no active recovery options yet. Tell me which booking was delayed, cancelled or missed, and I’ll calculate the impact before proposing a recovery.";
+  else if (/cost|refund|cheap|budget|spend|value|expens/i.test(message)) answer = `This trip has ${info.bookings} bookings for ${info.travelers} traveler(s). Total booked value is INR ${info.value}; currently refundable value is INR ${info.refundable}, with INR ${info.refundExposure} outside refund deadlines. Your current budget is INR ${fresh.preferences.budget}. Refunds are estimates based on saved policies.`;
   else if (/(next|upcoming|schedule|agenda|what.?s next)/i.test(message)) {
-    const upcoming = t.trip.bookings
-      .filter((b) => Date.parse(b.start) >= Date.parse(t.clock || now()))
-      .sort((a, b) => Date.parse(a.start) - Date.parse(b.start))
-      .slice(0, 3);
-    answer = upcoming.length
-      ? `${upcoming.length} booking(s) remain after the simulation clock. Next up: ${upcoming
-          .map(
-            (b) =>
-              `${b.title} at ${new Date(b.start).toLocaleString("en-GB", {
-                timeZone: "Asia/Kolkata",
-                day: "numeric",
-                month: "short",
-                hour: "2-digit",
-                minute: "2-digit",
-              })} IST`,
-          )
-          .join("; ")}.`
-      : "No upcoming bookings remain after the simulation clock. Adjust the clock in Trip settings to plan earlier.";
-  } else if (/how long|duration|how many days|length/i.test(message))
-    answer = `${t.trip.name} runs ${t.trip.start} to ${t.trip.end} (${info.daysUntil > 0 ? `starts in ${info.daysUntil} day(s)` : "already underway"}) with ${info.bookings} bookings for ${info.travelers} travelers.`;
-  else if (/total|spend|value|expens/i.test(message))
-    answer = `Booked trip value is INR ${info.value} (about INR ${info.perTraveler} per traveler). Per illustrative policies, roughly INR ${info.refundable} is still refundable and INR ${info.refundExposure} is now outside refund deadlines.`;
-  else if (/weather/i.test(message)) {
-    const weather = t.disruptions.filter((d) => d.type === "weather");
-    answer = weather.length
-      ? `A weather disruption is active on ${weather
-          .map(
-            (d) =>
-              t.trip.bookings.find((b) => b.id === d.bookingId)?.title ||
-              "a booking",
-          )
-          .join(", ")} with a ${Math.max(
-          ...weather.map((d) => d.delayMinutes || 0),
-        )}-minute closure. ${p.length} recovery plan(s) are available.`
-      : "No live weather feed is connected. Report a weather disruption to simulate a closure, or ask about connection risks.";
-  } else if (/access/i.test(message))
-    answer = t.preferences.accessible
-      ? "Accessible-only is on: the recovery engine filters out replacement offers that are not marked accessible."
-      : "Accessible-only is off. Turn it on in Preferences to exclude replacement offers that are not marked accessible.";
-  else if (/risk|connect|warning/i.test(message))
-    answer = w.length
-      ? w.map((x) => x.message).join("\n")
-      : "There are no tight connections in the current itinerary.";
-  else if (/recover|delay|cancel|plan/i.test(message))
-    answer = hits.length
-      ? `${hits.length} bookings are affected. ${p.length} feasible plans were found. ${p.length ? `Recommended: ${p[0].label}, changing ${p[0].changes.length} bookings. Review it in Recovery center.` : "Try increasing your budget or adding replacement inventory. You can also open a support ticket."}`
-      : "Your trip has no active disruption. Use Simulate disruption to explore a change.";
-  else
-    answer = `Your ${t.trip.name} trip has ${t.trip.bookings.length} bookings and ${t.trip.travelers} travelers. Ask about your schedule, recovery plans, costs, refunds, weather, accessibility, or connection risks. This assistant uses itinerary rules, not an LLM. For other requests, open a support ticket.`;
-  res.json({ answer });
+    const upcoming = fresh.trip.bookings.filter((b) => Date.parse(b.start) >= Date.parse(fresh.clock || now())).sort((a, b) => Date.parse(a.start) - Date.parse(b.start)).slice(0, 5);
+    answer = upcoming.length ? `Upcoming itinerary — your next ${upcoming.length} item(s): ${upcoming.map((b) => `${b.title} at ${new Date(b.start).toLocaleString("en-GB", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} IST`).join("; ")}.` : "No upcoming bookings remain after the simulation clock.";
+  } else if (/weather|rain|storm|temperature|forecast|umbrella|visit there|outdoor|air quality/i.test(message)) answer = `${weatherSummary(liveWeather)} ${fresh.disruptions.some((d) => d.type === "weather") ? `${plans.length} recovery plan(s) account for the active weather disruption.` : "I checked the saved itinerary for outdoor activities, travel connections, and hotel stops that may be affected."}`;
+  else if (/access/i.test(message)) answer = fresh.preferences.accessible ? "Accessible-only is on. Replacement offers are filtered to accessible options." : "Accessible-only is off. Ask me to enable accessibility preferences and I’ll prepare the change for your confirmation.";
+  else answer = `I’ve loaded ${fresh.trip.name} and can read ${info.bookings} bookings, check trip costs and refunds, identify connection risks, update trip details and preferences, record disruptions, and compare or apply recovery plans. Your current route ends in ${fresh.trip.destination}. What would you like to change?`;
+  const deterministicQuestion = /\b(add|create|book)\b.*\b(booking|flight|hotel|activity|restaurant|transfer)\b|itinerary|all bookings|list bookings|what.*booked|risk|connect|warning|affected|recover|alternative|plan b|cost|refund|cheap|budget|spend|value|expens|next|upcoming|schedule|agenda|what.?s next|access/i.test(message);
+  if (ai.configured() && (!deterministicQuestion || weatherQuestion)) {
+    try { const result = await ai.chat([{ role: "system", content: "You are Waypoint's trip assistant. Answer from the supplied live weather, news, and trip context. Relate weather conditions to the traveler's actual itinerary and give practical, qualified advice; never present a forecast as certainty or claim news is a government alert. Cite headline titles when useful. Do not claim bookings were changed; changes require confirmation. Never invent prices, availability, policies, or bookings. Be concise and mention when data is unavailable." }, { role: "system", content: context }, { role: "user", content: message }], { maxTokens: 350 }); answer = result.reply; } catch {}
+  }
+  res.json({ answer, state: snapshot(fresh), plans, proposal: null });
 });
 // --- Trip Builder (Manual build + Automated recovery) -----------------------
 const ownedBuild = (s, req) => {
@@ -1272,6 +1470,31 @@ app.post("/api/build/:buildId/message", async (req, res) => {
     builder.autoAdvance(b);
     return builder.view(b, Date.now());
   });
+  // The deterministic engine decides the plan. Nugen (if configured) only
+  // rephrases the assistant's reply. On any failure we keep the rule text.
+  if (ai.configured()) {
+    try {
+      const { reply } = await ai.chat(ai.buildContextMessages(result, message), {
+        maxTokens: 400,
+      });
+      if (reply) {
+        const enhanced = await mutate((s) => {
+          const b = ownedBuild(s, req);
+          const last = [...b.conversation]
+            .reverse()
+            .find((m) => m.role === "assistant");
+          if (last) {
+            last.text = reply;
+            last.ai = true;
+          }
+          return builder.view(b, Date.now());
+        });
+        return res.json(enhanced);
+      }
+    } catch (error) {
+      console.warn("Nugen AI reply skipped:", error.message);
+    }
+  }
   res.json(result);
 });
 app.post("/api/build/:buildId/confirm", async (req, res) => {
@@ -1356,6 +1579,66 @@ app.get("/api/activity", (req, res) =>
       .map((a) => ({ id: a.id, action: a.action, detail: a.detail, at: a.at })),
   ),
 );
+// --- AI (Nugen) proxy -------------------------------------------------------
+app.get("/api/ai/status", (req, res) =>
+  res.json({ configured: ai.configured(), model: ai.modelName() }),
+);
+app.post("/api/ai/chat", async (req, res) => {
+  const v = z
+    .object({
+      messages: z
+        .array(
+          z.object({
+            role: z.enum(["system", "user", "assistant"]),
+            content: z.string().min(1).max(8000),
+          }),
+        )
+        .min(1)
+        .max(24),
+      maxTokens: z.number().int().min(16).max(2000).optional(),
+    })
+    .parse(req.body);
+  if (!ai.configured())
+    return res.status(503).json({ error: "AI is not configured. Set NUGEN_API_KEY." });
+  try {
+    const { reply, model } = await ai.chat(v.messages, { maxTokens: v.maxTokens || 400 });
+    res.json({ reply, model });
+  } catch (error) {
+    res.status(502).json({ error: error.message });
+  }
+});
+app.post("/api/ai/chat/stream", async (req, res) => {
+  const v = z
+    .object({
+      messages: z
+        .array(
+          z.object({
+            role: z.enum(["system", "user", "assistant"]),
+            content: z.string().min(1).max(8000),
+          }),
+        )
+        .min(1)
+        .max(24),
+    })
+    .parse(req.body);
+  if (!ai.configured())
+    return res.status(503).json({ error: "AI is not configured. Set NUGEN_API_KEY." });
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+  const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  try {
+    for await (const delta of ai.chatStream(v.messages)) send("delta", { text: delta });
+    send("done", {});
+  } catch (error) {
+    send("error", { message: error.message });
+  } finally {
+    res.end();
+  }
+});
 app.post("/api/tickets", async (req, res) => {
   const v = z
     .object({
@@ -1625,67 +1908,114 @@ app.post("/api/admin/trips/:tripId/check", async (req, res) => {
     const found = warnings(t);
     t.monitoredVersion = t.version;
     for (const w of found)
-      notify(s, t.ownerId, t.trip.id, w.title, w.message);
+      notify(s, t.ownerId, t.trip.id, w.title, w.message, { emailPreview: false });
     audit(s, req.user.id, "admin.trip-checked", t.trip.id, `${found.length} warnings`);
-    return { id: t.trip.id, warnings: found.length, riskLevel: summary(t).riskLevel };
+    const traveler = s.users.find((user) => user.id === t.ownerId);
+    const email = {
+      to: traveler?.email || "",
+      subject: found.length ? "Your trip check is complete" : "Your trip has been checked",
+      body: found.length
+        ? `The Waypoint team reviewed your trip and found ${found.length} item(s) to review: ${found.map((warning) => warning.title).join(", ")}. Open your trip to see details.`
+        : "The Waypoint team reviewed your trip. No new issues were found.",
+      tripName: t.trip.name,
+    };
+    return { id: t.trip.id, warnings: found.length, riskLevel: summary(t).riskLevel, email };
   });
-  res.json(result);
+  const email = await sendTripActionEmail(result.email);
+  res.json({ ...result, email });
 });
 app.post("/api/admin/trips/:tripId/monitoring", async (req, res) => {
   const v = z.object({ paused: z.boolean() }).parse(req.body);
-  await mutate((s) => {
+  const result = await mutate((s) => {
     const t = adminTrip(s, req);
     t.paused = v.paused;
     audit(s, req.user.id, v.paused ? "admin.trip-paused" : "admin.trip-resumed", t.trip.id);
+    return adminTripNotice(
+      s,
+      t,
+      v.paused ? "Trip monitoring paused" : "Trip monitoring resumed",
+      v.paused
+        ? "The Waypoint team paused automatic trip monitoring. Your saved itinerary remains available."
+        : "The Waypoint team resumed automatic trip monitoring for your itinerary.",
+    );
   });
-  res.json({ ok: true });
+  const email = await sendTripActionEmail(result);
+  res.json({ ok: true, email });
 });
 app.post("/api/admin/trips/:tripId/cancel", async (req, res) => {
   const v = z.object({ reason: z.string().trim().max(300).optional() }).parse(req.body || {});
-  await mutate((s) => {
+  const result = await mutate((s) => {
     const t = adminTrip(s, req);
+    if (t.cancelled) fail(409, "This trip is already cancelled");
     t.cancelled = true;
     t.cancelReason = v.reason || "";
     t.cancelledAt = now();
-    notify(
-      s,
-      t.ownerId,
-      t.trip.id,
-      "Trip cancelled",
+    const message =
       v.reason
         ? `An administrator cancelled this trip: ${v.reason}`
-        : "An administrator cancelled this trip.",
+        : "An administrator cancelled this trip.";
+    const email = adminTripNotice(
+      s,
+      t,
+      "Trip cancelled",
+      `${message} Your trip now shows as cancelled in Waypoint. Contact support if you need help with the next steps.`,
     );
     audit(s, req.user.id, "admin.trip-cancelled", t.trip.id, v.reason || "");
+    return email;
   });
-  res.json({ ok: true });
+  const email = await sendTripActionEmail(result);
+  res.json({ ok: true, email });
 });
 app.post("/api/admin/trips/:tripId/archive", async (req, res) => {
   const v = z.object({ archived: z.boolean() }).parse(req.body);
-  await mutate((s) => {
+  const result = await mutate((s) => {
     const t = adminTrip(s, req);
     t.archived = v.archived;
-    if (!v.archived) t.cancelled = false;
+    if (!v.archived && t.cancelled) {
+      t.cancelled = false;
+      t.cancelReason = "";
+      t.cancelledAt = null;
+    }
     audit(s, req.user.id, v.archived ? "admin.trip-archived" : "admin.trip-restored", t.trip.id);
+    return adminTripNotice(
+      s,
+      t,
+      v.archived ? "Trip archived" : "Trip restored",
+      v.archived
+        ? "The Waypoint team archived your trip. Contact support if you need it restored."
+        : "The Waypoint team restored your trip. It is available in your active trips again.",
+    );
   });
-  res.json({ ok: true });
+  const email = await sendTripActionEmail(result);
+  res.json({ ok: true, email });
 });
 app.post("/api/admin/trips/:tripId/notify", async (req, res) => {
   const v = z.object({ message: z.string().trim().min(2).max(500) }).parse(req.body);
-  await mutate((s) => {
+  const result = await mutate((s) => {
     const t = adminTrip(s, req);
-    notify(s, t.ownerId, t.trip.id, "Message from Waypoint support", v.message);
+    const email = adminTripNotice(s, t, "Message from Waypoint support", v.message);
     audit(s, req.user.id, "admin.trip-notified", t.trip.id, v.message);
+    return email;
   });
-  res.json({ ok: true });
+  const email = await sendTripActionEmail(result);
+  res.json({ ok: true, email });
 });
 app.post("/api/admin/disruptions/:tripId/:disruptionId/clear", async (req, res) => {
-  await mutate((s) => {
+  const result = await mutate((s) => {
     const t = adminTrip(s, req);
+    const disruption = t.disruptions.find((item) => item.id === req.params.disruptionId);
+    if (!disruption) fail(404, "Disruption not found");
     t.disruptions = t.disruptions.filter((d) => d.id !== req.params.disruptionId);
     audit(s, req.user.id, "admin.disruption-cleared", t.trip.id, req.params.disruptionId);
+    return adminTripNotice(
+      s,
+      t,
+      "Trip disruption update",
+      `The Waypoint team cleared the ${disruption.type?.replaceAll("_", " ") || "reported"} disruption for your trip. Review your itinerary for the latest details.`,
+    );
   });
-  res.json({ ok: true });
+  const email = await sendTripActionEmail(result);
+  res.json({ ok: true, email });
 });
 app.post("/api/admin/trips/:tripId/recover", async (req, res) => {
   const result = await mutate((s) => {
@@ -1706,17 +2036,17 @@ app.post("/api/admin/trips/:tripId/recover", async (req, res) => {
     t.trip.bookings = plan.bookings;
     t.offers = t.offers.filter((o) => !plan.bookings.some((b) => b.offerId === o.id));
     t.disruptions = [];
-    notify(
+    const email = adminTripNotice(
       s,
-      t.ownerId,
-      t.trip.id,
+      t,
       "Recovery applied by support",
       `${plan.label}: ${plan.changes.length} booking updates. Estimated additional cost INR ${plan.net}.`,
     );
     audit(s, req.user.id, "admin.trip-recovered", t.trip.id, plan.label);
-    return { ok: true, label: plan.label, net: plan.net, changes: plan.changes.length };
+    return { ok: true, label: plan.label, net: plan.net, changes: plan.changes.length, email };
   });
-  res.json(result);
+  const email = await sendTripActionEmail(result.email);
+  res.json({ ...result, email });
 });
 const monitor = setInterval(() => {
   if (!state.settings.monitoring) return;

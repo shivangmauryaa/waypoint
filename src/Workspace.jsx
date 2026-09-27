@@ -1,5 +1,5 @@
 import { TravelerSidebar, travelerSections } from "./TravelerSidebar";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Compass,
   Plus,
@@ -23,10 +23,11 @@ import {
   ChevronDown,
   LayoutDashboard,
   Sparkles,
-  Plane, Bot, Heart,
+  Plane, Bot, Heart, Briefcase, RotateCcw,
+  CloudRain, Sun, CloudSun, Wind, Droplets, Eye, Leaf, Umbrella, BusFront, Newspaper, Activity, CircleAlert,
 } from "lucide-react";
-import { CheckCircle2, Hotel, CarFront, Camera, MoreHorizontal, ArrowUpRight } from "lucide-react";
-import { destinations, TripPhoto } from "./BuilderVisuals";
+import { CheckCircle2, Hotel, CarFront, Camera, MoreHorizontal, ArrowUpRight, Building2, Utensils } from "lucide-react";
+import { destinations, destinationPhoto, TripPhoto } from "./BuilderVisuals";
 import { api, go, fields, localDate, iso } from "./api";
 import { Brand } from "./Public";
 import {
@@ -339,7 +340,7 @@ export function TripList({ user }) {
       <div className="trips-primary-column">
       {featured && <article className="trips-featured-card">
         <div className="trips-featured-photo"><RotatingCityPhoto city={featured.destination} alt={`${featured.destination} travel inspiration`} />
-          <span className={`trips-featured-status ${risk[featured.riskLevel]?.tone || ""}`}>{featured.disruptions ? <TriangleAlert size={14}/> : <Clock size={14}/>} {featured.disruptions ? "Disruption active" : featured.warnings ? "Tight connection" : risk[featured.riskLevel]?.label || "Ready to explore"}{featured.disruptions > 1 ? ` · ${featured.disruptions}` : ""}</span>
+          <span className={`trips-featured-status ${featured.cancelled ? "cancel" : risk[featured.riskLevel]?.tone || ""}`}>{featured.cancelled || featured.disruptions ? <TriangleAlert size={14}/> : <Clock size={14}/>} {featured.cancelled ? "Trip cancelled" : featured.disruptions ? "Disruption active" : featured.warnings ? "Tight connection" : risk[featured.riskLevel]?.label || "Ready to explore"}{featured.disruptions > 1 ? ` · ${featured.disruptions}` : ""}</span>
           <button className="trips-featured-menu" aria-label={`Delete ${featured.name}`} title="Delete trip" onClick={() => remove(featured)}><MoreHorizontal size={20}/></button>
           <a className="trips-featured-title" href={`/trip/${featured.id}/overview`}><h2>{featured.name}</h2><span><CalendarDays size={14}/>{new Date(`${featured.start}T12:00:00`).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})} – {new Date(`${featured.end}T12:00:00`).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</span><span><MapPin size={14}/>{featured.destination}</span></a>
           <span className="trips-featured-weather"><span>☀️</span><b>Trip forecast</b><small>Check closer to departure</small></span>
@@ -357,8 +358,8 @@ export function TripList({ user }) {
           >
             <div className={"trip-tile-art art-" + (i % 3)}>
               <RotatingCityPhoto city={t.destination} alt={`${t.destination} travel`} />
-              <span className={`tag ${risk[t.riskLevel]?.tone || ""}`}>
-                {risk[t.riskLevel]?.label || "Ready to explore"}
+              <span className={`tag ${t.cancelled ? "cancel" : risk[t.riskLevel]?.tone || ""}`}>
+                {t.cancelled ? "Trip cancelled" : risk[t.riskLevel]?.label || "Ready to explore"}
               </span>
               <span>{t.destination || "Journey"}</span>
             </div>
@@ -875,68 +876,102 @@ export function TripSettings({ data, request, onSaved, onDuplicate }) {
     </div>
   );
 }
-export function Assistant({ tripId }) {
-  const [messages, setMessages] = useState([
-      {
-        by: "assistant",
-        text: "Hi! Ask about this trip’s recovery options, costs, refunds, or connection risks. I answer using your actual itinerary data.",
-      },
-    ]),
-    [busy, setBusy] = useState(false);
-  return (
-    <section className="card chat-panel">
-      <div className="section-title">
-        <h2>
-          <MessageCircle size={18} />
-          Your trip companion
-        </h2>
-        <span className="tag">RULE-BASED ASSISTANT</span>
-      </div>
-      <div className="chat-messages" aria-live="polite">
-        {messages.map((m, i) => (
-          <div className={"chat-message " + m.by} key={i}>
-            <small>{m.by === "you" ? "YOU" : "WAYPOINT"}</small>
-            <p>{m.text}</p>
-          </div>
-        ))}
-      </div>
-      <form
-        className="chat-input"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          const f = e.currentTarget,
-            message = f.elements.namedItem("message").value;
-          setMessages((m) => [...m, { by: "you", text: message }]);
-          f.reset();
-          setBusy(true);
-          try {
-            const r = await api(`trips/${tripId}/assistant`, { message });
-            setMessages((m) => [...m, { by: "assistant", text: r.answer }]);
-          } catch (err) {
-            setMessages((m) => [...m, { by: "assistant", text: err.message }]);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <input
-          name="message"
-          aria-label="Ask about your trip"
-          placeholder="What’s at risk in my itinerary?"
-          required
-          maxLength={2000}
-        />
-        <button className="button primary" disabled={busy}>
-          <Send size={16} />
-          {busy ? "Thinking…" : "Send"}
-        </button>
-      </form>
-      <p className="footnote">
-        Need a person? <a href="/support">Open a support request →</a>
-      </p>
-    </section>
-  );
+const weatherLabel = (code = 0) => code === 0 ? "Clear sky" : code <= 3 ? "Partly cloudy" : code <= 48 ? "Foggy" : code <= 67 ? "Rain" : code <= 77 ? "Snow" : code <= 82 ? "Showers" : code <= 86 ? "Snow showers" : "Thunderstorms";
+const weatherIcon = (code = 0) => code === 0 ? Sun : code <= 3 ? CloudSun : CloudRain;
+const weatherTime = (value, opts = { hour: "numeric", hour12: true }) => new Date(value).toLocaleString("en-IN", { ...opts, timeZone: "Asia/Kolkata" });
+
+export function TripWeather({ tripId, data, onNavigate }) {
+  const [weather, setWeather] = useState(null), [loading, setLoading] = useState(true), [error, setError] = useState(""), [overlay, setOverlay] = useState("rain"), [prompt, setPrompt] = useState(""), [chat, setChat] = useState([]), [sending, setSending] = useState(false);
+  const trip = data?.trip || {}, city = (trip.destination || "Jaipur").split(",")[0].trim(), bookings = trip.bookings || [];
+  const loadWeather = async () => { setLoading(true); setError(""); try { setWeather(await api(`trips/${tripId}/weather`)); } catch (e) { setError(e.message); } finally { setLoading(false); } };
+  useEffect(() => { loadWeather(); const timer = setInterval(loadWeather, 300000); return () => clearInterval(timer); }, [tripId]);
+  const current = weather?.current, units = current?.units || {}, description = weatherLabel(current?.weather_code), WeatherIcon = weatherIcon(current?.weather_code);
+  const now = Date.now(), forecastHours = (weather?.hourly || []).filter((h) => Date.parse(h.time) >= now), hours = forecastHours.slice(0, 7), upcoming = bookings.filter((b) => Date.parse(b.end) >= now).sort((a, b) => Date.parse(a.start) - Date.parse(b.start)).slice(0, 3);
+  const rainRisk = forecastHours.slice(0, 24).some((h) => Number(h.precipitation_probability) >= 60), outdoors = bookings.filter((b) => /activity|event/i.test(b.type)), transport = bookings.filter((b) => /flight|train|transfer/i.test(b.type));
+  const affectedOutdoor = outdoors.some((booking) => { const start = Date.parse(booking.start); const nearest = forecastHours.find((h) => Math.abs(Date.parse(h.time) - start) < 60 * 60 * 1000); return nearest && Number(nearest.precipitation_probability) >= 60; });
+  const windyOverlay = overlay === "radar" ? "rain" : overlay;
+  const mapSrc = weather?.coordinates ? `https://embed.windy.com/embed2.html?lat=${weather.coordinates.latitude}&lon=${weather.coordinates.longitude}&detailLat=${weather.coordinates.latitude}&detailLon=${weather.coordinates.longitude}&width=100%25&height=100%25&zoom=8&level=surface&overlay=${windyOverlay}&product=ecmwf&menu=&message=true&marker=true&calendar=now&pressure=true&type=map&location=coordinates&detail=true&metricRain=mm&metricTemp=%C2%B0C` : "";
+  const tabs = [["weather", "Weather"], ["insights", "Travel impact"], ["recovery", "Recovery options"], ["overview", "Itinerary"], ["overview", "Bookings"], ["assistant", "Assistant"]];
+  const ask = async (text = prompt) => { const message = String(text).trim(); if (!message || sending) return; setPrompt(""); setChat((items) => [...items, { by: "you", text: message }]); setSending(true); try { const answer = await api(`trips/${tripId}/assistant`, { message }); setChat((items) => [...items, { by: "assistant", text: answer.answer }]); } catch (e) { setChat((items) => [...items, { by: "assistant", text: e.message }]); } finally { setSending(false); } };
+  return <main className="trip-weather-page">
+    <nav className="weather-trip-tabs" aria-label="Trip workspace"><span>{trip.name || `${city} trip`}</span>{tabs.map(([slug, label], i) => <button key={`${slug}-${label}`} className={i === 0 ? "active" : ""} onClick={() => onNavigate?.(slug)}>{i === 0 ? <CloudRain/> : null}{label}</button>)}</nav>
+    <div className="weather-columns"><div className="weather-main-column">
+      <section className="weather-now-card" style={{ backgroundImage: `linear-gradient(90deg,#102947d9 0%,#1029479c 48%,#1029473d),url('${destinationPhoto(city)}')` }}>
+        <div className="weather-live-line"><b>{weather?.city || city}{weather?.region ? `, ${weather.region}` : ""}</b><span>● Live</span><small>{current ? `Updated ${Math.max(0, Math.floor((Date.now() - Date.parse(weather.fetchedAt)) / 60000))} min ago` : loading ? "Getting current conditions…" : "Forecast status"}</small></div>
+        <button className="weather-alert-link" onClick={() => ask(`How will the forecast affect my outdoor activities and transport in ${city}?`)}><Droplets/> {rainRisk ? "Rain expected in the forecast" : "Check forecast against my trip"}<ArrowRight/></button>
+        <div className="weather-condition"><WeatherIcon size={62}/><div><strong>{current ? `${Math.round(current.temperature_2m)}°C` : loading ? "—" : "Unavailable"}</strong><b>{description}</b><small>Feels like {current?.apparent_temperature ?? "—"}°C <i/> H: {weather?.daily?.[0]?.temperature_2m_max ?? "—"}° L: {weather?.daily?.[0]?.temperature_2m_min ?? "—"}°</small></div></div>
+        <div className="weather-stats"><span><Droplets/><b>{current?.relative_humidity_2m ?? "—"}%</b><small>Humidity</small></span><span><Wind/><b>{current?.wind_speed_10m ?? "—"} km/h</b><small>Wind</small></span><span><Leaf/><b>{current?.uv_index ?? "—"} UV</b><small>UV index</small></span><span><Sun/><b>{weather?.daily?.[0]?.uv_index_max ?? "—"} max</b><small>Today</small></span><span><Eye/><b>{current?.visibility != null ? `${(current.visibility / 1000).toFixed(0)} km` : "—"}</b><small>Visibility</small></span></div>
+      </section>
+      {error && <div className="weather-error" role="status">{error}. Showing trip details while live data reconnects. <button onClick={loadWeather}>Retry</button></div>}
+      {weather?.warnings?.map((warning) => <div className="weather-error" key={warning}>{warning}</div>)}
+      <div className="weather-forecast-map"><section className="weather-hourly-card"><div className="weather-section-title"><div><h2>Next hours</h2><p>Hourly forecast for {weather?.city || city}</p></div><button onClick={loadWeather} title="Refresh forecast"><RefreshCw size={16}/></button></div><div className="weather-hourly-list">{hours.length ? hours.map((hour, i) => { const Icon = weatherIcon(hour.weather_code); return <article key={hour.time}><small>{i === 0 ? "Now" : weatherTime(hour.time)}</small><Icon/><b>{Math.round(hour.temperature_2m)}°</b><span><Droplets size={12}/> {hour.precipitation_probability ?? 0}%</span></article>; }) : <p className="weather-empty">{loading ? "Loading the live hourly forecast…" : "Hourly forecast is not available for this date."}</p>}</div><div className="weather-trip-impact"><h3>Weather impact on your trip</h3><div><article><Plane/><b>Flights & transfers</b><span className={rainRisk ? "warn" : "good"}>{rainRisk ? "Check local conditions" : "No major weather signal"}</span><small>{transport.length} scheduled transport item(s)</small></article><article><Building2/><b>Hotel stays</b><span className="good">No direct impact</span><small>Keep your existing check-in plan</small></article><article><Camera/><b>Outdoor activities</b><span className={affectedOutdoor ? "warn" : "good"}>{affectedOutdoor ? "Rain near activity time" : "No rain signal at forecast times"}</span><small>{outdoors.length} itinerary activity/event(s), forecast up to 7 days</small></article></div></div></section>
+        <section className="weather-map-card"><div className="weather-section-title"><div><h2>Live weather map</h2><p>{weather?.city || city} and nearby</p></div><a href={weather?.coordinates ? `https://www.google.com/maps/@${weather.coordinates.latitude},${weather.coordinates.longitude},10z` : `https://www.google.com/maps/search/${encodeURIComponent(city)}`} target="_blank" rel="noreferrer">Open map <ExternalLink size={13}/></a></div><div className="weather-map-frame">{mapSrc ? <iframe title={`${city} live weather map`} src={mapSrc} loading="lazy" allowFullScreen/> : <div className="weather-map-fallback"><MapPin/><b>{city}</b><small>{loading ? "Loading map location…" : "Map location unavailable"}</small></div>}<div className="weather-map-controls">{["rain", "wind", "clouds"].map((layer) => <button key={layer} className={overlay === layer ? "active" : ""} onClick={() => setOverlay(layer)}>{layer[0].toUpperCase() + layer.slice(1)}</button>)}</div></div><small className="weather-attribution">Map and forecast layer by Windy · Forecast data: Open-Meteo</small></section></div>
+      <section className="weather-news-card"><div className="weather-section-title"><div><h2><Newspaper/> Recent area news</h2><p>Recent coverage for {weather?.city || city}{weather?.region ? ` and ${weather.region}` : ""}. Check the source before acting on developing reports.</p></div><span>{weather?.news?.length ? "Live headlines" : loading ? "Loading" : "No headlines"}</span></div>{weather?.news?.length ? <div className="weather-news-list">{weather.news.map((item, i) => <a href={item.url} key={item.url || i} target="_blank" rel="noreferrer"><span>{i + 1}</span><div><b>{item.title}</b><small>{item.source} · {item.publishedAt ? new Date(item.publishedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : "Recent"}</small></div><ExternalLink size={14}/></a>)}</div> : <p className="weather-empty">Area headlines will appear when the live news feed responds.</p>}</section>
+      <section className="weather-ask-card"><div className="weather-section-title"><div><h2><Sparkles/> Ask Waypoint <span>● Trip-aware</span></h2><p>Ask how conditions affect your flights, transfers, hotel or activities.</p></div></div><div className="weather-suggestions">{[`Will rain affect my plans in ${city}?`, "Should I move an outdoor activity indoors?", "What should I pack for this forecast?", "Any weather news nearby?"] .map((s) => <button key={s} onClick={() => ask(s)}>{s}</button>)}</div>{chat.length > 0 && <div className="weather-chat" aria-live="polite">{chat.slice(-6).map((m, i) => <p className={m.by} key={i}><b>{m.by === "you" ? "You" : "Waypoint AI"}</b>{m.text}</p>)}</div>}<form onSubmit={(e) => { e.preventDefault(); ask(); }}><input value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Ask about weather, travel impact, or your trip…" aria-label="Ask about weather or trip"/><button aria-label="Send question" disabled={sending || !prompt.trim()}><Send size={17}/></button></form></section>
+    </div><aside className="weather-side-column"><section className="weather-side-card current-trip-weather"><div className="weather-section-title"><h2>Current trip</h2><button onClick={() => onNavigate?.("overview")}>Edit trip</button></div><div><img src={destinationPhoto(city)} alt=""/><span><b>{trip.name || `${city} trip`}</b><small>{trip.start} – {trip.end}</small><small>{trip.travelers || 1} traveler · {bookings.length} bookings · {money(data?.insights?.value || 0)}</small></span></div></section><section className="weather-side-card"><div className="weather-section-title"><h2><CircleAlert/> Trip weather alerts</h2><button onClick={() => onNavigate?.("recovery")}>Recovery options <ArrowRight size={13}/></button></div><div className={`weather-impact-alert ${affectedOutdoor ? "alert" : "calm"}`}><WeatherIcon/><span><b>{affectedOutdoor ? "Rain may affect an outdoor plan" : weather?.current ? "No rain signal at activity time" : "Waiting for live conditions"}</b><small>{affectedOutdoor ? "Review the activity with a matching forecast and consider an indoor alternative." : "Check again closer to each activity and departure."}</small></span></div></section><section className="weather-side-card"><div className="weather-section-title"><h2>Next 3 itinerary items</h2><button onClick={() => onNavigate?.("overview")}>Full itinerary <ArrowRight size={13}/></button></div>{upcoming.length ? upcoming.map((b) => <article className="weather-next-item" key={b.id}><span>{b.type === "flight" ? <Plane/> : /hotel/i.test(b.type) ? <Building2/> : /transfer|train/i.test(b.type) ? <BusFront/> : <Camera/>}</span><div><small>{weatherTime(b.start, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}</small><b>{b.title}</b><small>{b.provider}</small></div><em>{rainRisk && /transfer|activity|event/i.test(b.type) ? "Watch" : "Planned"}</em></article>) : <p className="weather-empty">No upcoming trip items.</p>}</section><section className="weather-side-card weather-advice"><h2><Sparkles/> AI suggestions</h2><p>Based on current conditions and the trip details you've saved.</p><button onClick={() => ask("Should I visit my outdoor activities in " + city + " given the latest weather and nearby news?")}><Umbrella/> Check outdoor plans <ArrowRight/></button><button onClick={() => ask("What weather buffer should I allow for my upcoming transport?")}><BusFront/> Keep a travel buffer <ArrowRight/></button></section><section className="weather-side-card weather-news-source"><b>Data sources</b><p>Forecast from Open-Meteo. Area headlines from GDELT. Map layers from Windy. Forecasts and headlines can change.</p></section></aside></div>
+  </main>;
 }
+
+export function Assistant({ tripId, data, onState, onAddBooking, onOpenRecovery, onOpenItinerary }) {
+  const [messages, setMessages] = useState([]), [busy, setBusy] = useState(false), [draft, setDraft] = useState(""), [error, setError] = useState("");
+  const threadRef = useRef(null);
+  const bookings = data?.trip?.bookings || [], trip = data?.trip || {}, info = data?.insights || {};
+  const destination = (trip.destination || "Jaipur").split(",")[0];
+  const activeDisruption = data?.disruptions?.[0];
+  const quickPrompts = ["Change my flight", "Change my hotel", "Find a transfer", "Replace a restaurant", "Rebuild my trip", "Check refunds", "Add something new", "View my itinerary"];
+  useEffect(() => { const thread = threadRef.current; if (thread) thread.scrollTop = thread.scrollHeight; }, [messages, busy]);
+  const send = async (text = draft, action, confirm = false) => {
+    const message = String(text || "").trim(); if (!message || busy) return;
+    setDraft(""); setError(""); setMessages((items) => [...items, { by: "you", text: message }]); setBusy(true);
+    try {
+      const result = await api(`trips/${tripId}/assistant`, { message, ...(action ? { action, confirm } : {}) });
+      if (result.state) onState?.(result.state);
+      setMessages((items) => [...items, { by: "assistant", text: result.answer, proposal: result.proposal || null, plans: result.plans || [], message }]);
+    } catch (e) { setError(e.message); setMessages((items) => [...items, { by: "assistant", text: e.message }]); }
+    finally { setBusy(false); }
+  };
+  const runPrompt = (text) => {
+    if (/add something new/i.test(text)) { onAddBooking?.(); return; }
+    if (/view my itinerary/i.test(text)) { onOpenItinerary?.(); return; }
+    if (/rebuild my trip/i.test(text)) { onOpenRecovery?.(); return; }
+    if (/check refunds/i.test(text)) { send("How much is refundable and what does each booking policy say?"); return; }
+    const category = /flight/i.test(text) ? "flight" : /hotel/i.test(text) ? "hotel" : /transfer/i.test(text) ? "transfer" : /restaurant/i.test(text) ? "restaurant" : "booking";
+    send(category === "restaurant" ? "I need to replace my restaurant booking" : `I want to replace my ${category} booking`);
+  };
+  return <section className="trip-assistant-page">
+    <header className="assistant-trip-hero" style={{ backgroundImage: `linear-gradient(90deg,#071c3adf 0%,#0b2a4c9c 47%,#06172c1e),url('${destinationPhoto(destination)}')` }}>
+      <div className="assistant-crumb"><a href={`/trip/${tripId}/overview`}>Trips</a><ChevronRight size={13}/><span>{trip.name || `${trip.destination} trip`}</span><ChevronRight size={13}/><b>Assistant</b></div>
+      <div className="assistant-hero-title"><h1>{trip.name || `${trip.destination} journey`} <button type="button" aria-label="Edit trip details" onClick={onOpenItinerary}><Compass size={17}/></button></h1><p><CalendarDays size={16}/> {trip.start} – {trip.end}<span/><MapPin size={16}/> {trip.destination}</p></div>
+      <div className="assistant-trip-stats"><span><Briefcase/> <b>{bookings.length}</b><small>Bookings</small></span><span><Users size={19}/> <b>{trip.travelers || 1}</b><small>Traveler{trip.travelers === 1 ? "" : "s"}</small></span><span><Wallet size={19}/> <b>{money(info.value || 0)}</b><small>Total value</small></span><span className={data?.disruptions?.length ? "risk" : "okay"}><TriangleAlert size={18}/> <b>{data?.disruptions?.length || data?.warnings?.length || 0}</b><small>Needs attention</small></span></div>
+      <span className="assistant-weather">☀️ <small>Trip forecast<br/>Check closer to departure</small></span>
+    </header>
+    <div className="assistant-workspace">
+      <section className="assistant-chat-card">
+        <div className="assistant-heading"><Sparkles size={25}/><div><h2>Your AI travel assistant</h2><p>I can help you plan, change, recover and manage your entire trip.</p></div><span className="assistant-online">● Ready to help</span></div>
+        <div className="assistant-thread" ref={threadRef} aria-live="polite">
+          {!messages.length && <div className="assistant-welcome-row"><span className="assistant-avatar"><Plane size={19}/></span><div className="assistant-bubble"><b>Hi {data?.owner?.name?.split(" ")[0] || "there"}! 👋</b><p>I have loaded your trip to {destination}. I can help with:</p><ul><li>Find alternatives for flights, hotels, transport and activities</li><li>Change trip details and recovery preferences</li><li>Check bookings, refunds, itinerary and connection risks</li><li>Rebuild your itinerary and apply recovery plans</li><li>Add or update bookings</li></ul><p>What would you like to do?</p></div></div>}
+          {messages.map((m, i) => <React.Fragment key={i}><div className={`assistant-message-row ${m.by}`}>
+            {m.by === "assistant" && <span className="assistant-avatar"><Sparkles size={19}/></span>}
+            <div className={`assistant-bubble ${m.by}`}><p>{m.text}</p>{m.proposal && <div className="assistant-proposal"><b>Review this change</b><span>{m.proposal.label}</span><small>{m.proposal.detail}</small><div><button className="assistant-confirm" disabled={busy} onClick={() => send(m.message, m.proposal, true)}>{busy ? "Saving…" : "Confirm change"}<ArrowRight size={15}/></button><button className="assistant-cancel" onClick={() => setMessages((items) => items.map((x, n) => n === i ? { ...x, proposal: null, text: `${x.text} Change cancelled.` } : x))}>Cancel</button></div></div>}</div>
+            {m.by === "you" && <span className="assistant-user-avatar">{data?.owner?.name?.split(" ").map((x) => x[0]).join("").slice(0, 2) || "TC"}</span>}
+          </div>{m.plans?.length > 0 && <div className="assistant-plan-list">{m.plans.slice(0, 3).map((plan) => <article key={plan.id}><span><b>{plan.label}</b><small>{plan.changes.length} booking updates · net INR {plan.net}</small></span><button onClick={() => send(`Apply ${plan.label}`, { type: "applyRecovery", planId: plan.id, version: data?.version }, false)}>Review</button><button onClick={() => onOpenRecovery?.()}>Compare</button></article>)}</div>}</React.Fragment>)}
+          {busy && <div className="assistant-thinking"><span/><span/><span/> Checking the trip and preparing options…</div>}
+        </div>
+        {!messages.length && <div className="assistant-quick-prompts">{quickPrompts.map((x) => <button key={x} onClick={() => runPrompt(x)}>{x}</button>)}</div>}
+        {error && <div className="assistant-inline-error" role="alert">{error}</div>}
+        <form className="assistant-compose" onSubmit={(e) => { e.preventDefault(); send(); }}><button type="button" title="Add or update booking" onClick={onAddBooking}><Plus size={18}/></button><input aria-label="Ask about your trip" placeholder="Ask anything about your trip…" value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={2000}/><button className="assistant-send" aria-label="Send" disabled={busy || !draft.trim()}><Send size={17}/></button></form>
+        <p className="assistant-footnote"><ShieldCheck size={14}/> Changes are shown for your review before they’re saved. <a href="/support">Talk to support</a></p>
+      </section>
+      <aside className="assistant-action-center"><section className="assistant-side-card"><div className="assistant-side-heading"><h3>AI Action Center</h3><span>● Ready to help</span></div><div className="assistant-current-trip"><div><b>Current trip</b><button onClick={onOpenItinerary}>Edit trip</button></div><img src={destinationPhoto(destination)} alt=""/><span><strong>{trip.name || `${trip.destination} trip`}</strong><small>{trip.start} – {trip.end}</small><em>{trip.travelers || 1} travelers · {bookings.length} bookings · {money(info.value || 0)}</em></span></div></section>
+        {activeDisruption && <section className="assistant-side-card assistant-impact"><div className="assistant-side-heading"><h3><TriangleAlert size={17}/> Active Impact</h3><span>{data.disruptions.length} issue{data.disruptions.length===1?"":"s"}</span></div><b>{activeDisruption.type.replaceAll("_", " ")}</b><small>{bookings.find((b) => b.id === activeDisruption.bookingId)?.title || "Trip booking"} · {data.impacts?.filter((x) => x.affected).length || 0} affected booking(s)</small><button onClick={onOpenRecovery}>Open Recovery Options <ArrowRight size={15}/></button></section>}
+        <section className="assistant-side-card assistant-up-next"><div className="assistant-side-heading"><h3>Up Next</h3><button onClick={onOpenItinerary}>View full itinerary <ArrowRight size={14}/></button></div>{[...bookings].sort((a,b)=>Date.parse(a.start)-Date.parse(b.start)).slice(0,4).map((b) => { const Icon = b.type === "flight" ? Plane : b.type === "hotel" ? Building2 : b.type === "transfer" ? CarFront : b.type === "activity" ? Camera : Utensils; const when = new Date(b.start).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); return <div className="assistant-next-item" key={b.id}><span><Icon/></span><div><small>{when} IST</small><b>{b.title}</b><small>{b.provider}</small></div><em>{b.status || "Confirmed"}</em></div>; })}</section>
+        <section className="assistant-side-card assistant-quick-actions"><h3>Quick Actions</h3><div><button onClick={onOpenItinerary}><Briefcase/>View bookings</button><button onClick={() => runPrompt("Change my flight")}><Plane/>Change flight</button><button onClick={() => runPrompt("Change my hotel")}><Building2/>Change hotel</button><button onClick={() => runPrompt("Find a transfer")}><CarFront/>Find transport</button><button onClick={() => runPrompt("Check refunds")}><ShieldCheck/>Check refunds</button><button onClick={onOpenRecovery}><RotateCcw/>Rebuild trip</button><button onClick={onAddBooking}><Plus/>Add booking</button></div></section>
+      </aside>
+    </div>
+  </section>;
+}
+
+
 const ACCOUNT_ACTIVITY_LABELS = {
   "account.login": "Signed in",
   "account.created": "Account created",
@@ -2298,21 +2333,24 @@ export function Admin({ user, logout, section = "overview" }) {
           )}
           {tab === "Email outbox" && (
             <section className="card editor-card glass">
-              <h2>Local email outbox</h2>
+              <h2>Email delivery log</h2>
               <p className="notice">
-                These are local previews, not delivered emails. Verification and
-                reset links expire after one hour.
+                Admin trip updates are sent using the configured email service.
+                Account verification and password reset messages remain local previews.
               </p>
               {data.outbox.map((m) => (
                 <article className="mail-item" key={m.id}>
                   <div className="row-between">
                     <b>{m.subject}</b>
-                    <span className="tag">LOCAL ONLY</span>
+                    <span className={`tag mail-status-${String(m.status || "local-only").replaceAll("_", "-")}`}>
+                      {({ sent: "SENT", failed: "FAILED", not_configured: "NOT CONFIGURED", unavailable: "UNAVAILABLE", "local-only": "LOCAL PREVIEW" })[m.status] || String(m.status || "local-only").toUpperCase()}
+                    </span>
                   </div>
                   <small>
                     To: {m.to} · {new Date(m.at).toLocaleString()}
                   </small>
                   <p>{m.body}</p>
+                  {m.detail && <small className="mail-delivery-detail">{m.detail}</small>}
                   {m.body.match(
                     /http:\/\/127\.0\.0\.1:3001\/(?:#\/)?(?:reset|verify)\?token=[a-f0-9]+/,
                   ) && (

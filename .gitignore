@@ -1,5 +1,7 @@
 node_modules/
 dist/
+dist-mobile/
+dist-*/
 data/*.json
 data/*.tmp
 data/logos/

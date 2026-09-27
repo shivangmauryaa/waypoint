@@ -164,7 +164,7 @@ export function mutate(fn) {
 export function audit(s, userId, action, objectId, detail = "") {
   s.audit.unshift({ id: id(), userId, action, objectId, detail, at: now() });
 }
-export function notify(s, userId, tripId, title, message) {
+export function notify(s, userId, tripId, title, message, { emailPreview = true } = {}) {
   s.notifications.unshift({
     id: id(),
     userId,
@@ -175,7 +175,7 @@ export function notify(s, userId, tripId, title, message) {
     at: now(),
   });
   const user = s.users.find((u) => u.id === userId);
-  if (user?.notifications)
+  if (user?.notifications && emailPreview)
     s.outbox.unshift({
       id: id(),
       to: user.email,

@@ -81,7 +81,7 @@ const TYPE_LABEL = {
   traveler_change: "Changed plans",
 };
 
-export function RecoveryCenter({ data, bookings, affected, hasDisruption, showPlans, onShowPlans, busy, onTrigger, onClear, onPreferences, tripId, onReplace, onUndo }) {
+export function RecoveryCenter({ data, bookings, affected, hasDisruption, showPlans, onShowPlans, busy, onTrigger, onClear, onPreferences, tripId, onReplace, onGenerateOptions, onCancelBooking, onUndo }) {
   const [open, setOpen] = useState(false);
   const [eventKey, setEventKey] = useState("flight_miss");
   const [bookingId, setBookingId] = useState(bookings[0]?.id || "");
@@ -92,6 +92,8 @@ export function RecoveryCenter({ data, bookings, affected, hasDisruption, showPl
   const [altLoading, setAltLoading] = useState(false);
   const [selectedOffer, setSelectedOffer] = useState(null);
   const [applying, setApplying] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState(null);
+  const [cancelData, setCancelData] = useState(null);
 
   const openAlternatives = async (booking) => {
     setAltBooking(booking);
@@ -99,7 +101,13 @@ export function RecoveryCenter({ data, bookings, affected, hasDisruption, showPl
     setSelectedOffer(null);
     setAltLoading(true);
     try {
-      setAltData(await api(`trips/${tripId}/bookings/${booking.id}/alternatives`));
+      let result = await api(`trips/${tripId}/bookings/${booking.id}/alternatives`);
+      if (!result.alternatives.some((item) => item.feasible)) {
+        const ok = await onGenerateOptions(booking.id);
+        if (ok === false) throw new Error("Could not prepare alternatives for this booking.");
+        result = await api(`trips/${tripId}/bookings/${booking.id}/alternatives`);
+      }
+      setAltData(result);
     } catch (err) {
       setAltData({ error: err.message, alternatives: [], policy: { amount: 0, note: "" } });
     } finally {
@@ -109,13 +117,26 @@ export function RecoveryCenter({ data, bookings, affected, hasDisruption, showPl
   const applyOffer = async () => {
     if (!selectedOffer || !altBooking) return;
     setApplying(true);
-    const ok = await onReplace(altBooking.id, selectedOffer.id);
+    const ok = await onReplace(altBooking.id, selectedOffer.id, altData.version);
     setApplying(false);
     if (ok !== false) {
       setAltBooking(null);
       setAltData(null);
       setSelectedOffer(null);
     }
+  };
+  const openCancel = async (booking) => {
+    setCancelTarget(booking);
+    setCancelData(null);
+    try { setCancelData(await api(`trips/${tripId}/bookings/${booking.id}/alternatives`)); }
+    catch (err) { setCancelData({ error: err.message }); }
+  };
+  const confirmCancel = async () => {
+    if (!cancelTarget || !cancelData?.version) return;
+    setApplying(true);
+    const ok = await onCancelBooking(cancelTarget.id, cancelData.version);
+    setApplying(false);
+    if (ok !== false) { setCancelTarget(null); setCancelData(null); }
   };
 
   const recommended = useMemo(
@@ -129,6 +150,7 @@ export function RecoveryCenter({ data, bookings, affected, hasDisruption, showPl
     ? bookings.filter((b) => !recommended.changes.some((change) => change.bookingId === b.id))
     : [];
   const unaffected = bookings.filter((b) => !affected.some((i) => i.id === b.id));
+  const canCancel = (booking) => !bookings.some((item) => (item.dependencies || []).some((link) => link.id === booking.id));
   const affectedById = (id) => bookings.find((b) => b.id === id);
   const tripInfo = data.trip || {};
   const currentDisruption = data.disruptions?.at(-1);
@@ -203,7 +225,7 @@ export function RecoveryCenter({ data, bookings, affected, hasDisruption, showPl
               <p>Thoughtful decisions for the trip you want to take.</p>
               <div className="rc-trip-meta"><span><CalendarDays size={15} /> {tripDateRange}</span><i /><span><MapPin size={15} /> {tripInfo.destination}</span></div>
             </div>
-            <span className="rc-weather"><span>Sunny</span><b>28 C</b><small>Trip forecast</small></span>
+            <span className="rc-weather"><ShieldCheck size={22} /><b>Monitoring</b><small>Trip itinerary</small></span>
           </header>
           <div className="rc-status rc-status-color">
             <div className="rc-status-tile tone-green"><span><ShieldCheck size={22} /></span><div><small>Trip status</small><b className={hasDisruption ? "warn" : "ok"}>{hasDisruption ? "Needs attention" : "On track"}</b><small>{hasDisruption ? "Review the affected booking" : "Most of your trip is running smoothly"}</small></div></div>
@@ -240,8 +262,8 @@ export function RecoveryCenter({ data, bookings, affected, hasDisruption, showPl
                 const change = item.changes?.[0] || {};
                 const title = change.title || item.label;
                 const Icon = /flight/i.test(title) ? Plane : /transfer|uber|taxi|transport/i.test(title) ? Car : /restaurant|dinner|food/i.test(title) ? UtensilsCrossed : /hotel|stay/i.test(title) ? Building2 : /activity|tour|fort/i.test(title) ? Camera : Clock;
-                return <div className="rc-history-row" key={item.id}><span className={item.undone ? "undone" : ""}><Icon size={15} /></span><div><b>{item.label}</b><small>{title} - {new Date(item.appliedAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</small></div><i className={item.undone ? "reverted" : "complete"}>{item.undone ? "Reverted" : "Completed"}</i><strong className={item.net < 0 ? "saved" : ""}>{item.net < 0 ? "-" : "+"}{money(Math.abs(item.net))}</strong></div>;
-              }) : <div className="rc-history-empty"><Clock size={20} /> Your completed recovery actions will appear here.</div>}
+                return <div className="rc-history-row" key={item.id}><span className={item.undone ? "undone" : ""}><Icon size={15} /></span><div><b>{item.label}</b><small>{new Date(item.appliedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })} · {change.kind === "cancelled" ? `${change.fromProvider || title} removed` : `${change.fromProvider || title} → ${change.provider || "updated"}`}</small><small>Estimated refund {money(change.refund || 0)} · {Math.max(0, (item.previousBookings?.length || bookings.length) - item.changes.length)} bookings preserved</small></div><i className={item.undone ? "reverted" : "complete"}>{item.undone ? "Reverted" : "Completed"}</i><strong className={item.net < 0 ? "saved" : ""}>{item.net < 0 ? "-" : "+"}{money(Math.abs(item.net))}</strong></div>;
+              }) : <div className="rc-history-current"><span><ShieldCheck size={19}/></span><div><b>Current trip plan</b><small>{tripInfo.name} · {bookings.length} bookings · {money(tripCost)}</small><small>Next: {bookings[0]?.title || "No bookings yet"}{bookings[0] ? ` at ${hhmm(bookings[0].start)}` : ""}</small><em>No recovery changes yet</em></div><button onClick={() => bookings[0] && openAlternatives(bookings[0])} disabled={!bookings.length}>Change one booking <ArrowRight size={13}/></button></div>}
               {data.history?.[0] && !data.history[0].undone && <button className="rc-undo-link" onClick={onUndo} disabled={busy}>Undo latest change <ArrowRight size={13} /></button>}
             </section>
             <aside className="rc-current-card">
@@ -256,6 +278,13 @@ export function RecoveryCenter({ data, bookings, affected, hasDisruption, showPl
               <button className="rc-current-action" onClick={() => setOpen(true)}>Report a change <ArrowRight size={14} /></button>
             </aside>
           </div>
+          <section className="rc-one-change">
+            <header><div><h2>Change one thing</h2><p>Choose a booking to replace or remove. The rest of your trip stays in place.</p></div><span>{bookings.length} current bookings</span></header>
+            <div className="rc-one-list">{bookings.map((booking) => {
+              const Icon = booking.type === "flight" || booking.type === "train" ? Plane : booking.type === "transfer" ? Car : booking.type === "hotel" ? Building2 : booking.type === "event" ? UtensilsCrossed : Camera;
+              return <article key={booking.id}><i><Icon size={17}/></i><div><b>{booking.title}</b><small>{booking.provider} · {hhmm(booking.start)} · {money(booking.price)}</small></div><button onClick={() => openAlternatives(booking)}>Find alternative</button>{canCancel(booking) && <button className="rc-one-cancel" onClick={() => openCancel(booking)}>Cancel only this</button>}</article>;
+            })}</div>
+          </section>
         </>
       )}
       {open && (
@@ -349,7 +378,7 @@ export function RecoveryCenter({ data, bookings, affected, hasDisruption, showPl
                     </button>
                   ))}
                   {!altData.alternatives.length && (
-                    <div className="rc-empty">No replacement inventory for this booking yet. Generate demo inventory from the Inventory view, then try again.</div>
+                    <div className="rc-empty">No feasible replacement is available for this booking at its current time. Try a recovery plan or change your preferences.</div>
                   )}
                 </div>
                 <p className="rc-alt-note">Simulated demo inventory — no live supplier search is connected. Prices and refunds are estimates from stored policy data.</p>
@@ -375,6 +404,17 @@ export function RecoveryCenter({ data, bookings, affected, hasDisruption, showPl
           </div>
         </div>
       )}
+      {cancelTarget && <div className="rc-modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget && !applying) setCancelTarget(null); }}>
+        <div className="rc-modal rc-modal-alt" role="dialog" aria-modal="true" aria-label="Review booking cancellation">
+          <button type="button" className="rc-close" aria-label="Close" onClick={() => setCancelTarget(null)} disabled={applying}><X size={18}/></button>
+          <div className="rc-kicker">ONE BOOKING ONLY</div><h2>Review cancellation</h2>
+          <p>{cancelTarget.title} · {cancelTarget.provider}</p>
+          {cancelData?.error ? <div className="error" role="alert">{cancelData.error}</div> : cancelData ? <>
+            <div className="rc-review"><div><span>Original booking</span><b>{money(cancelTarget.price)}</b></div><div><span>Estimated refund</span><b>{money(cancelData.policy?.amount || 0)}</b></div><div className="total"><span>Estimated amount not refunded</span><b>{money(cancelTarget.price - (cancelData.policy?.amount || 0))}</b></div><p>{cancelData.policy?.note}</p><p className="rc-review-note">The other {bookings.length - 1} bookings remain in your itinerary. This updates your local trip; confirm supplier cancellation separately.</p></div>
+            <div className="rc-modal-actions"><button type="button" className="button" onClick={() => setCancelTarget(null)} disabled={applying}>Keep booking</button><button type="button" className="button primary" onClick={confirmCancel} disabled={applying}>{applying ? "Updating…" : "Remove this booking"} <ArrowRight size={16}/></button></div>
+          </> : <div className="rc-search-status"><RefreshCw size={15} className="spin"/> Checking booking policy…</div>}
+        </div>
+      </div>}
     </section>
   );
 }

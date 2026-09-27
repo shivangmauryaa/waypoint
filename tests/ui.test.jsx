@@ -28,7 +28,7 @@ import { Overview } from "../src/Overview";
 import { ManualTrip } from "../src/ManualTrip";
 import { SearchPanel } from "../src/Builder";
 import { newBuild as newTripBuild, view as tripBuildView } from "../server/builder.js";
-import { impacted, recover, warnings, insights } from "../server/engine";
+import { impacted, recover, warnings, insights, risk } from "../server/engine";
 import { seed } from "../server/seed";
 import { api, go } from "../src/api";
 import {
@@ -290,11 +290,12 @@ describe("platform components", () => {
     await screen.findByText("Troubled trip");
     expect(screen.getByText("Disruption active")).toBeTruthy();
     expect(screen.getByText("On track")).toBeTruthy();
+    expect(container.querySelector(".trips-featured-card")?.textContent).toContain("Troubled trip");
     const tiles = [...container.querySelectorAll("a.trip-tile")].map(
       (a) => a.textContent,
     );
-    expect(tiles[0]).toContain("Troubled trip");
-    expect(tiles[1]).toContain("Quiet trip");
+    expect(tiles).toHaveLength(1);
+    expect(tiles[0]).toContain("Quiet trip");
   });
   it("deleting a trip confirms, calls the API and removes the tile", async () => {
     const trips = [
@@ -352,8 +353,15 @@ describe("platform components", () => {
           name: "Jaipur escape",
           destination: "Jaipur",
           start: "2026-10-12",
+          end: "2026-10-15",
           daysUntil: 3,
           riskLevel: "medium",
+          hasFlight: true,
+          bookings: 2,
+          travelers: 2,
+          value: 14000,
+          refundable: 5000,
+          bookingPreview: [],
         },
       ],
       risks: [],
@@ -361,17 +369,17 @@ describe("platform components", () => {
     });
     render(<Overview user={user} />);
     await screen.findByText("Where the money is");
-    expect(screen.getByText("Trip readiness")).toBeTruthy();
-    expect(screen.getByText("Refund picture")).toBeTruthy();
-    expect(screen.getByText("Upcoming departures")).toBeTruthy();
-    expect(screen.getByText("Recovery outcomes")).toBeTruthy();
+    expect(screen.getByText("Next trip readiness")).toBeTruthy();
+    expect(screen.getByText("Estimated refundable value")).toBeTruthy();
+    expect(screen.getByText("Next trip itinerary")).toBeTruthy();
+    expect(screen.getByText("Your trip updates")).toBeTruthy();
     expect(api).toHaveBeenCalledWith("overview");
   });
   it("dashboard saves destinations across visits and connects planning actions", async () => {
     localStorage.clear();
     api.mockResolvedValue({ trips: 0, active: 0, value: 0, byType: {}, riskCounts: {}, warnings: 0, departures: [], risks: [], recoveries: {} });
     const first = render(<Overview user={user} />);
-    await screen.findByText("Your Upcoming Trip");
+    await screen.findByText("Your next chapter is unwritten.");
     expect(screen.getByRole("link", { name: "AI Recovery" }).getAttribute("href")).toBe("/build?mode=auto");
     fireEvent.click(screen.getByRole("button", { name: "Save Jaipur" }));
     expect(screen.getByRole("button", { name: "Unsave Jaipur" }).getAttribute("aria-pressed")).toBe("true");
@@ -638,15 +646,35 @@ describe("platform components", () => {
     );
     render(<Dashboard tripId="sample" user={user} section="insights" />);
     await screen.findByText("Your journey, by the numbers.");
-    await screen.findByText("Where the money goes");
-    expect(screen.getByText("Booked trip value")).toBeTruthy();
-    expect(screen.getByText("Still refundable")).toBeTruthy();
-    expect(screen.getByText("Trip rhythm")).toBeTruthy();
+    await screen.findByText("Where your trip budget goes");
+    expect(screen.getByText("Trip value")).toBeTruthy();
+    expect(screen.getByText("Refundable now")).toBeTruthy();
+    expect(screen.getByText("Your next itinerary item")).toBeTruthy();
     expect(
       screen
         .getByRole("link", { name: /Trip insights/ })
         .getAttribute("aria-current"),
     ).toBe("page");
+  });
+  it("trip activity shows the current saved plan before recovery history exists", async () => {
+    const data = { ...seed(), clock: "2026-10-11T10:00:00Z", ownerId: user.id };
+    const snapshot = () => ({
+      ...data,
+      impacts: impacted(data),
+      warnings: warnings(data),
+      plans: recover(data),
+      insights: insights(data),
+      risks: risk(data),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => snapshot() })),
+    );
+    render(<Dashboard tripId="sample" user={user} section="activity" />);
+    await screen.findByText("Activity & changes");
+    expect(screen.getByText("Your original trip plan is active")).toBeTruthy();
+    expect(screen.getByText("Current trip plan")).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Review recovery options/ })).toBeTruthy();
   });
   it("assistant shows engine response", async () => {
     api.mockResolvedValue({ answer: "Two bookings are at risk." });

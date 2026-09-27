@@ -7,7 +7,7 @@ import { join, resolve, dirname } from "node:path";
 test("multi-user platform integration", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "waypoint-test-"));
   const child = spawn(process.execPath, ["server/index.js"], {
-    env: { ...process.env, PORT: "3109", DATA_DIR: dir },
+    env: { ...process.env, PORT: "3109", DATA_DIR: dir, SMTP_HOST: "", SMTP_FROM: "" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let stderr = "";
@@ -232,6 +232,36 @@ test("multi-user platform integration", async (t) => {
       assert.match(text, /"Title","Type","Provider"/);
       assert.match(text, /"Delhi to Goa"/);
     });
+    await t.test("single booking recovery preserves unrelated bookings and records history", async () => {
+      await call("auth/signup", { name: "Recovery Tester", email: "recovery@example.com", password: "RecoveryTest123!" }, "POST", "recovery");
+      const recoveryCall = (path, body, method = "POST") => call(path, body, method, "recovery");
+      const created = await recoveryCall("trips", { name: "One change trip", destination: "Goa", subtitle: "Targeted recovery", start: "2026-11-03", end: "2026-11-05", travelers: 1 });
+      const targetId = created.data.id;
+      const base = { reference: "DEMO", from: "GOI", to: "Goa", refund: 0.5, refundDeadline: "2026-11-03T23:00:00+05:30", dependencies: [] };
+      const transfer = (await recoveryCall(`trips/${targetId}/bookings`, { ...base, type: "transfer", title: "Airport taxi", provider: "Uber", start: "2026-11-03T09:00:00+05:30", end: "2026-11-03T09:30:00+05:30", price: 400 })).data.trip.bookings[0];
+      const hotel = (await recoveryCall(`trips/${targetId}/bookings`, { ...base, type: "hotel", title: "Hotel check-in", provider: "Beach stay", from: "Goa", start: "2026-11-03T10:00:00+05:30", end: "2026-11-03T10:30:00+05:30", price: 3000, dependencies: [{ id: transfer.id, buffer: 15 }] })).data.trip.bookings.find((item) => item.type === "hotel");
+      const dinner = (await recoveryCall(`trips/${targetId}/bookings`, { ...base, type: "event", title: "Dinner", provider: "Local restaurant", from: "Goa", start: "2026-11-03T19:00:00+05:30", end: "2026-11-03T20:00:00+05:30", price: 800 })).data.trip.bookings.find((item) => item.type === "event");
+      let r = await recoveryCall(`trips/${targetId}/bookings/${transfer.id}/generate-alternatives`, {});
+      assert.equal(r.status, 200);
+      let options = await recoveryCall(`trips/${targetId}/bookings/${transfer.id}/alternatives`, undefined, "GET");
+      assert.equal(options.data.alternatives.length, 3);
+      assert.equal((await recoveryCall(`trips/${targetId}/bookings/${transfer.id}/generate-alternatives`, {})).data.offers.length, 3);
+      const offer = options.data.alternatives.find((item) => item.feasible);
+      assert.ok(offer);
+      r = await recoveryCall(`trips/${targetId}/bookings/${transfer.id}/replace`, { offerId: offer.id, version: options.data.version });
+      assert.equal(r.status, 200);
+      assert.equal(r.data.trip.bookings.find((item) => item.id === hotel.id).provider, hotel.provider);
+      assert.equal(r.data.trip.bookings.find((item) => item.id === dinner.id).provider, dinner.provider);
+      assert.equal(r.data.history[0].changes[0].kind, "replaced");
+      assert.equal((await recoveryCall(`trips/${targetId}/bookings/${transfer.id}/cancel`, { version: r.data.version })).status, 409);
+      options = await recoveryCall(`trips/${targetId}/bookings/${dinner.id}/alternatives`, undefined, "GET");
+      r = await recoveryCall(`trips/${targetId}/bookings/${dinner.id}/cancel`, { version: options.data.version });
+      assert.equal(r.status, 200);
+      assert.equal(r.data.trip.bookings.length, 2);
+      assert.equal(r.data.history[0].changes[0].kind, "cancelled");
+      assert.equal(r.data.history[0].changes[0].refund, 400);
+      assert.equal((await recoveryCall(`trips/${targetId}/undo`, {})).data.trip.bookings.length, 3);
+    });
     await t.test(
       "full disruption recovery persists and rejects stale selection",
       async () => {
@@ -343,6 +373,27 @@ test("multi-user platform integration", async (t) => {
       assert.equal(weather.status, 200);
       assert.match(weather.data.answer, /weather/i);
     });
+    await t.test("assistant proposes writes and only updates after confirmation", async () => {
+      const before = (await call(`trips/${tripId}/state`)).data;
+      const proposed = await call(`trips/${tripId}/assistant`, {
+        message: "Change my budget to INR 18000",
+      });
+      assert.equal(proposed.status, 200);
+      assert.equal(proposed.data.proposal.type, "updatePreferences");
+      assert.equal((await call(`trips/${tripId}/state`)).data.preferences.budget, before.preferences.budget);
+      const saved = await call(`trips/${tripId}/assistant`, {
+        message: "Change my budget to INR 18000",
+        action: proposed.data.proposal,
+        confirm: true,
+      });
+      assert.equal(saved.status, 200);
+      assert.equal(saved.data.state.preferences.budget, 18000);
+      await call(`trips/${tripId}/assistant`, {
+        message: "Restore my original budget",
+        action: { type: "updatePreferences", patch: { budget: before.preferences.budget } },
+        confirm: true,
+      });
+    });
     await t.test("trip snapshot includes computed insights", async () => {
       const s = (await call(`trips/${tripId}/state`)).data;
       assert.equal(s.insights.bookings, s.trip.bookings.length);
@@ -374,6 +425,9 @@ test("multi-user platform integration", async (t) => {
       );
       assert.equal(typeof o.byType, "object");
       assert.ok(Array.isArray(o.departures));
+        assert.ok(o.departures.every((trip) => typeof trip.end === "string" && Array.isArray(trip.bookingPreview)));
+        assert.ok(o.departures.every((trip, index) => index === 0 || o.departures[index - 1].start <= trip.start));
+        assert.ok(Array.isArray(o.recentRecoveries));
       assert.equal(typeof o.recoveries.applied, "number");
       assert.equal(
         (await call("overview", undefined, "GET", "other")).data.trips >= 1,
@@ -540,6 +594,33 @@ test("multi-user platform integration", async (t) => {
       assert.ok(p.trips.length >= 1);
       assert.ok(p.trips.every((x) => typeof x.value === "number"));
       assert.ok(p.trips.some((x) => x.bookings > 0));
+    });
+    await t.test("admin cancellation updates the traveler and records email delivery", async () => {
+      const cancelled = await call(
+        `admin/trips/${otherId}/cancel`,
+        { reason: "A schedule change requires a new plan." },
+        "POST",
+        "admin",
+      );
+      assert.equal(cancelled.status, 200);
+      assert.equal(cancelled.data.email.status, "not_configured");
+      assert.equal(
+        (await call(`trips/${otherId}/state`, undefined, "GET", "other")).data.cancelled,
+        true,
+      );
+      assert.equal(
+        (await call("trips", undefined, "GET", "other")).data.find((trip) => trip.id === otherId).cancelled,
+        true,
+      );
+      assert.ok(
+        (await call("notifications", undefined, "GET", "other")).data.some((item) => item.title === "Trip cancelled"),
+      );
+      const outbox = (await call("admin/overview", undefined, "GET", "admin")).data.outbox;
+      assert.ok(outbox.some((item) => item.subject === "Trip cancelled" && item.status === "not_configured"));
+      assert.equal(
+        (await call(`admin/trips/${otherId}/cancel`, {}, "POST", "admin")).status,
+        409,
+      );
     });
     await t.test("traveler can delete a trip permanently", async () => {
       const created = await call("trips", {
