@@ -1753,9 +1753,7 @@ app.use((err, req, res, next) =>
         : err.message,
   }),
 );
-const port = Number(process.env.PORT || 3001);
-app.listen(port, host, () =>
-  console.log(
-    `Waypoint listening on ${host}:${port}; local access: http://127.0.0.1:${port}`,
-  ),
-);
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Waypoint listening on 0.0.0.0:${PORT}`);
+});

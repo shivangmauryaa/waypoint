@@ -1,4 +1,4 @@
-export const host = process.env.HOST || "127.0.0.1";
+export const host = process.env.HOST || "0.0.0.0";
 export const publicMode = process.env.PUBLIC_MODE === "1";
 export const trustTunnel = process.env.TRUST_TUNNEL === "1";
 export const allowedOrigins = new Set(
